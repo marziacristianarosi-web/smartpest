@@ -24,36 +24,41 @@ saveRDS(out, "out/inext.rds"); write.csv2(rbind(cbind(Livello="Cmin", e1), cbind
 
 ## ---- Figura ----
 suppressMessages({library(ggplot2); library(patchwork)})
+s <- out$iNextEst$size_based
 col <- c("Farnia - autunno"="#eb6834", "Farnia - estate"="#2a78d6", "Cerro - estate"="#1baf7a")
-s$Gruppo <- factor(s$Assemblage, levels=names(col))
-s$Tratto <- ifelse(s$Method=="Extrapolation", "Estrapolazione", "Rarefazione")
-s0 <- s[s$Order.q==0,]
-oss <- s0[s0$Method=="Observed",]
+s$Gruppo <- factor(s$Assemblage, levels=names(col)); s0 <- s[s$Order.q==0,]
+oss <- s0[s0$Method=="Observed",]; fin <- s0[s0$t==20,]
 tema <- theme_minimal(base_size=12) + theme(panel.grid.minor=element_blank(), panel.grid.major.x=element_blank(),
   panel.grid.major.y=element_line(colour="#e6e5e0", linewidth=0.3), axis.line=element_line(colour="#8a8984", linewidth=0.3),
-  axis.ticks=element_line(colour="#8a8984"), axis.text=element_text(colour="#52514e"), text=element_text(colour="#0b0b0b"),
-  legend.position="top", legend.justification="left", plot.tag=element_text(face="bold"),
+  axis.text=element_text(colour="#52514e"), text=element_text(colour="#0b0b0b"), legend.position="none",
+  plot.title=element_text(face="bold", size=12), plot.subtitle=element_text(colour="#52514e", size=10),
   plot.background=element_rect(fill="#fcfcfb", colour=NA))
-pa <- ggplot(s0, aes(t, qD, colour=Gruppo, fill=Gruppo)) +
-  geom_vline(xintercept=10, colour="#c3c2b7", linewidth=0.4) +
-  geom_ribbon(aes(ymin=qD.LCL, ymax=qD.UCL), alpha=0.12, colour=NA) +
-  geom_line(data=s0[s0$t<=10,], linewidth=0.9) +
-  geom_line(data=s0[s0$t>=10,], linewidth=0.9, linetype="22") +
-  geom_point(data=oss, size=3, shape=21, stroke=0.8, colour="#fcfcfb") +
+zone <- function(ytop) list(
+  annotate("rect", xmin=10, xmax=20.5, ymin=-Inf, ymax=Inf, fill="#efeee9", alpha=0.6),
+  annotate("text", x=5.5, y=ytop, label="DATI REALI\n(da 1 a 10 piante campionate)", size=3.3, colour="#52514e", fontface="bold"),
+  annotate("text", x=15.25, y=ytop, label="PREVISIONE\n(se si campionassero 11-20 piante)", size=3.3, colour="#52514e", fontface="bold"))
+lin <- function(y) list(
+  geom_ribbon(aes(ymin=.data[[paste0(y,".LCL")]], ymax=.data[[paste0(y,".UCL")]]), alpha=0.13, colour=NA),
+  geom_line(data=s0[s0$t<=10,], linewidth=1), geom_line(data=s0[s0$t>=10,], linewidth=1, linetype="22"),
+  geom_point(data=oss, size=3.2, shape=21, stroke=0.8, colour="#fcfcfb"))
+pa <- ggplot(s0, aes(t, qD, colour=Gruppo, fill=Gruppo)) + zone(21) + lin("qD") +
+  geom_text(data=fin, aes(label=Gruppo), hjust=0, nudge_x=0.3, size=3.4, colour="#0b0b0b") +
   scale_colour_manual(values=col) + scale_fill_manual(values=col) +
-  scale_x_continuous(breaks=seq(0,20,2), expand=c(0.01,0)) + scale_y_continuous(breaks=seq(0,22,2), expand=c(0,0)) +
-  coord_cartesian(ylim=c(0,22)) +
-  labs(tag="A", x="Numero di piante", y="Numero di taxa (q = 0)", colour=NULL, fill=NULL) + tema
-pb <- ggplot(s0, aes(t, SC, colour=Gruppo, fill=Gruppo)) +
-  geom_vline(xintercept=10, colour="#c3c2b7", linewidth=0.4) +
-  geom_ribbon(aes(ymin=SC.LCL, ymax=SC.UCL), alpha=0.12, colour=NA) +
-  geom_line(data=s0[s0$t<=10,], linewidth=0.9) +
-  geom_line(data=s0[s0$t>=10,], linewidth=0.9, linetype="22") +
-  geom_point(data=oss, size=3, shape=21, stroke=0.8, colour="#fcfcfb") +
+  scale_x_continuous(breaks=c(1,5,10,15,20), limits=c(1,25.5), expand=c(0.01,0)) +
+  scale_y_continuous(breaks=seq(0,22,2), expand=c(0,0)) + coord_cartesian(ylim=c(0,22.5)) +
+  labs(title="A. Quanti taxa si trovano campionando un certo numero di piante?",
+       subtitle="Punto = valore reale con 10 piante; banda = intervallo di confidenza al 95%",
+       x="Numero di piante campionate", y="Numero di taxa trovati") + tema
+finB <- data.frame(t=20, SC=c(1, fin$SC[fin$Gruppo=="Cerro - estate"]), lab=c("Farnia (autunno ed estate)", "Cerro - estate"))
+pb <- ggplot(s0, aes(t, SC, colour=Gruppo, fill=Gruppo)) + zone(0.36) + lin("SC") +
+  geom_text(data=finB, aes(t, SC, label=lab), inherit.aes=FALSE, hjust=0, vjust=c(-0.4, 1.2), nudge_x=0.3, size=3.4, colour="#0b0b0b", lineheight=0.9) +
   scale_colour_manual(values=col) + scale_fill_manual(values=col) +
-  scale_x_continuous(breaks=seq(0,20,2), expand=c(0.01,0)) + scale_y_continuous(labels=function(x) format(x, decimal.mark=","), expand=c(0,0)) +
-  coord_cartesian(ylim=c(0.5,1.005)) +
-  labs(tag="B", x="Numero di piante", y="Copertura del campione", colour=NULL, fill=NULL) + tema
-p <- (pa | pb) + plot_layout(guides="collect") & theme(legend.position="top", legend.justification="left")
-ggsave("out/fig_rarefazione_estrapolazione.png", p, width=10, height=4.8, dpi=300)
-ggsave("out/fig_rarefazione_estrapolazione.pdf", p, width=10, height=4.8)
+  scale_x_continuous(breaks=c(1,5,10,15,20), limits=c(1,25.5), expand=c(0.01,0)) +
+  scale_y_continuous(breaks=seq(0.3,1,0.1), labels=function(x) format(x, decimal.mark=","), expand=c(0,0)) +
+  coord_cartesian(ylim=c(0.3,1.035)) +
+  labs(title="B. Quanto è completo il campionamento?",
+       subtitle="Copertura = 1 significa che un'altra pianta non porterebbe taxa nuovi",
+       x="Numero di piante campionate", y="Copertura del campione") + tema
+p <- pa / pb
+ggsave("out/fig_rarefazione_estrapolazione.png", p, width=9, height=10, dpi=300)
+ggsave("out/fig_rarefazione_estrapolazione.pdf", p, width=9, height=10)
