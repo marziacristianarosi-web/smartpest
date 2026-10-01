@@ -20,7 +20,7 @@ file_dati   <- "G:/Il mio Drive/UNIVERSITA'/LAVORO/DATI_GIULIA_TIZIANA/AnalisiDa
 col_pianta  <- "N_pianta"   # identificativo della pianta (F1..F10, C1..C10)
 col_ospite  <- "Host_species"
 col_stag    <- "Season"
-col_piastra <- "Replicate"  # numero piastra (1 in autunno: piastre già aggregate)
+col_piastra <- "Plate"      # PL_1..PL_4 in estate; PL1_PL4 in autunno (4 piastre aggregate)
 # Colonne numeriche che NON sono taxa. La colonna finale senza nome del CSV è
 # una somma di Excel (Replicate + N_insetti + taxa) e viene esclusa a parte.
 col_escludi <- c("N_insetti")
@@ -113,6 +113,19 @@ pa_piastra <- (as.matrix(dati_grezzi[estate, taxa_cols]) > 0) * 1
 suff_piastra <- t(sapply(split(as.data.frame(pa_piastra), droplevels(dati_grezzi$Gruppo[estate])),
                          copertura_incidenza))
 cat("\nEstate, unità = piastra (solo descrittivo):\n"); print(suff_piastra)
+
+# Estate: le 4 piastre bastano a descrivere la comunità di una pianta?
+# Per ogni pianta: taxa osservati, Chao2 con 4 piastre e taxa attesi con 1, 2, 3 piastre
+suff_pianta <- do.call(rbind, lapply(split(as.data.frame(pa_piastra),
+                       paste(dati_grezzi[[col_ospite]], dati_grezzi[[col_pianta]])[estate]), function(m) {
+  y <- colSums(m); T <- nrow(m)
+  rk <- sapply(1:(T - 1), function(k) sum(1 - choose(T - y[y > 0], k) / choose(T, k)))
+  c(copertura_incidenza(m)[c("Sobs", "Q1", "Q2", "Chao2", "Completezza")],
+    setNames(round(rk / sum(y > 0) * 100), paste0("%taxa_con_", 1:(T - 1), "_piastre")))
+}))
+cat("\nEstate, completezza entro pianta (unità = piastra):\n"); print(suff_pianta)
+cat("Media:\n"); print(round(colMeans(suff_pianta), 2))
+write.csv2(suff_pianta, "tab_sufficienza_piastre_per_pianta.csv")
 
 # 4b. Curve di accumulo (vegan) per gruppo
 pdf("fig_curve_accumulo.pdf", width = 7, height = 5)
@@ -320,15 +333,6 @@ if (has("glmmTMB")) {
     }
   }
 }
-
-# 7c. Controllo di un possibile effetto "lotto": nei dati estivi le piante 1-5 e
-#     6-10 differiscono nettamente (es. Penicillium, F. tricinctum) in entrambe le
-#     querce. Da chiarire se corrispondono a date, siti o lotti di isolamento diversi.
-md_o$Blocco <- ifelse(as.integer(gsub("\\D", "", md_o[[col_pianta]])) <= 5, "piante 1-5", "piante 6-10")
-cat("\n--- Ospite al netto del blocco piante 1-5 / 6-10 ---\n")
-print(adonis2(vegdist(pa_o, "jaccard", binary = TRUE) ~ Blocco + md_o[[col_ospite]],
-              data = md_o, by = "terms", permutations = n_perm))
-print(tapply(md_o$Ricchezza, list(md_o$Blocco, md_o[[col_ospite]]), mean))
 
 ## ---- 8. MODELLO UNICO A TRE GRUPPI CON CONTRASTI PIANIFICATI (alternativa) ----
 # Gruppo con 3 livelli (robur-estate, robur-autunno, cerris-estate): l'interazione
