@@ -119,7 +119,7 @@ dev.off()
 if (has("iNEXT")) {
   inc_freq <- lapply(split(as.data.frame(pa_pianta), meta_pianta$Gruppo),
                      function(m) c(nrow(m), colSums(m)))
-  out_inext <- iNEXT::iNEXT(inc_freq, q = c(0, 1, 2), datatype = "incidence_freq", endpoint = 30)
+  out_inext <- iNEXT::iNEXT(inc_freq, q = c(0, 1, 2), datatype = "incidence_freq", endpoint = 20)  # estrapolazione affidabile fino a 2 × n (Chao et al. 2014)
   print(out_inext$DataInfo)
   # Numeri di Hill (q=0 ricchezza, q=1 Shannon esponenziale, q=2 Simpson inverso)
   # confrontati a copertura comune (standardizzazione corretta fra gruppi)
@@ -242,8 +242,9 @@ taxa_indicatori <- function(pa, md, fattore, appaiato = FALSE) {
   res <- res[order(res$p_esatto), ]
   print(res, row.names = FALSE)
   if (has("indicspecies")) {
-    iv <- indicspecies::multipatt(as.data.frame(pa), g, func = "IndVal.g",
-                                  control = how(nperm = n_perm))
+    # Se appaiato, le permutazioni avvengono solo entro pianta
+    ctrl_iv <- if (appaiato) how(nperm = n_perm, blocks = factor(md[[col_pianta]])) else how(nperm = n_perm)
+    iv <- indicspecies::multipatt(as.data.frame(pa), g, func = "IndVal.g", control = ctrl_iv)
     summary(iv, indvalcomp = TRUE)
   }
   invisible(res)
