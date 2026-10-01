@@ -26,7 +26,7 @@ lev_estate  <- "Estate"
 lev_autunno <- "Autunno"
 # Le stesse 10 farnie sono state campionate sia in estate sia in autunno?
 # TRUE = disegno appaiato (misure ripetute); FALSE = piante diverse.
-farnie_appaiate <- FALSE
+farnie_appaiate <- TRUE    # confermato: stesse 10 farnie in estate e in autunno
 n_perm   <- 9999   # permutazioni
 min_occ  <- 3      # n. minimo di piante in cui un taxon deve comparire per i test univariati
 set.seed(2026)
@@ -181,8 +181,13 @@ confronto_composizione <- function(pa, md, fattore, appaiato = FALSE) {
   pa <- pa[keep, colSums(pa) > 0, drop = FALSE]; md <- md[keep, ]
   g  <- droplevels(factor(md[[fattore]]))
   d  <- vegdist(pa, method = "jaccard", binary = TRUE)
-  ctrl <- if (appaiato) how(nperm = n_perm, blocks = factor(md[[col_pianta]])) else how(nperm = n_perm)
-  print(adonis2(d ~ g, permutations = ctrl))
+  if (appaiato) {
+    # Disegno a misure ripetute: la pianta entra come blocco e le permutazioni
+    # avvengono solo entro pianta (si scambiano le etichette di stagione).
+    pl <- factor(md[[col_pianta]])
+    print(adonis2(d ~ pl + g, by = "terms",
+                  permutations = how(nperm = n_perm, blocks = pl)))
+  } else print(adonis2(d ~ g, permutations = how(nperm = n_perm)))
   print(permutest(betadisper(d, g), permutations = n_perm))   # PERMANOVA valida se p non significativo
   nm <- metaMDS(pa, distance = "jaccard", binary = TRUE, k = 2, trymax = 100, trace = 0)
   pdf(paste0("fig_NMDS_", fattore, ".pdf"))
@@ -190,12 +195,14 @@ confronto_composizione <- function(pa, md, fattore, appaiato = FALSE) {
   points(nm, display = "sites", pch = 19, col = as.integer(g) + 1)
   ordiellipse(nm, g, kind = "sd", label = TRUE)
   dev.off()
-  if (has("mvabund") && !appaiato) {
+  if (has("mvabund")) {
     Y  <- mvabund::mvabund(pa)
     mg <- mvabund::manyglm(Y ~ g, family = "binomial")
-    # Test score/LR con PIT-trap: robusti anche in caso di separazione
+    # Test score con PIT-trap: robusti anche in caso di separazione.
+    # Se appaiato, si ricampionano intere piante (block) per rispettare la dipendenza.
+    blk <- if (appaiato) factor(md[[col_pianta]]) else NULL
     print(mvabund::anova.manyglm(mg, p.uni = "adjusted", test = "score",
-                                 resamp = "pit.trap", nBoot = 999))
+                                 resamp = "pit.trap", nBoot = 999, block = blk))
   }
 }
 
@@ -211,9 +218,13 @@ taxa_indicatori <- function(pa, md, fattore, appaiato = FALSE) {
     sep <- if (any(tab[2, ] == 0) || any(tab[1, ] == 0)) {
       if (all(diag(tab) == 0) || all(diag(tab[2:1, ]) == 0)) "completa" else "quasi-completa"
     } else "no"
+    discord <- NA_character_
     p_test <- if (appaiato) {
+      # McNemar esatto: test binomiale sulle sole piante discordanti
       o <- order(md[[col_pianta]]); yy <- split(y[o], g[o])
-      mcnemar.test(table(factor(yy[[1]], 0:1), factor(yy[[2]], 0:1)))$p.value
+      n10 <- sum(yy[[1]] == 1 & yy[[2]] == 0); n01 <- sum(yy[[1]] == 0 & yy[[2]] == 1)
+      discord <- sprintf("solo %s: %d | solo %s: %d", levels(g)[1], n10, levels(g)[2], n01)
+      if (n10 + n01 == 0) 1 else binom.test(n10, n10 + n01)$p.value
     } else fisher.test(tab)$p.value
     or_firth <- p_firth <- NA
     if (has("logistf") && !appaiato) {
@@ -222,7 +233,7 @@ taxa_indicatori <- function(pa, md, fattore, appaiato = FALSE) {
     }
     data.frame(Taxon = tx,
                t(setNames(round(100 * tab[2, ] / colSums(tab), 0), paste0("Freq%_", levels(g)))),
-               Separazione = sep, p_esatto = p_test,
+               Separazione = sep, Piante_discordanti = discord, p_esatto = p_test,
                OR_Firth = round(or_firth, 2), p_Firth = p_firth, check.names = FALSE)
   }))
   res$q_esatto_FDR <- p.adjust(res$p_esatto, "BH")
@@ -240,10 +251,37 @@ taxa_indicatori <- function(pa, md, fattore, appaiato = FALSE) {
 ## ---- 6. EFFETTO DELLA STAGIONE (solo Q. robur) ----------------------------------
 sel_s <- meta_pianta[[col_ospite]] == lev_robur
 md_s  <- meta_pianta[sel_s, ]; pa_s <- pa_pianta[sel_s, , drop = FALSE]
+if (farnie_appaiate) {
+  # Controllo: ogni farnia deve comparire una volta per stagione con lo stesso codice
+  tp <- table(md_s[[col_pianta]], md_s[[col_stag]])
+  if (any(tp != 1)) { print(tp); stop("Codici pianta non appaiati fra estate e autunno") }
+}
 confronto_ricchezza(md_s, col_stag, appaiato = farnie_appaiate)
 confronto_composizione(pa_s, md_s, col_stag, appaiato = farnie_appaiate)
 ind_stag <- taxa_indicatori(pa_s, md_s, col_stag, appaiato = farnie_appaiate)
 write.csv2(ind_stag, "tab_taxa_stagione.csv", row.names = FALSE)
+
+# 6b. Scomposizione della beta-diversità per ciascuna farnia (Baselga 2012):
+#     dissimilarità di Jaccard = sostituzione di taxa (turnover) + perdita/
+#     acquisizione di taxa (nestedness). Indica se la comunità autunnale è un
+#     sottoinsieme/ampliamento di quella estiva o se i taxa vengono sostituiti.
+if (farnie_appaiate) {
+  o  <- order(md_s[[col_pianta]])
+  st <- factor(md_s[[col_stag]][o]); X <- pa_s[o, , drop = FALSE]
+  E  <- X[st == lev_estate, , drop = FALSE]; A <- X[st == lev_autunno, , drop = FALSE]
+  a  <- rowSums(E & A); b <- rowSums(E & !A); c <- rowSums(!E & A)
+  jac <- (b + c) / (a + b + c)
+  jtu <- 2 * pmin(b, c) / (a + 2 * pmin(b, c))
+  beta_pl <- data.frame(Pianta = md_s[[col_pianta]][o][st == lev_estate],
+                        Condivisi = a, Solo_estate = b, Solo_autunno = c,
+                        Jaccard = round(jac, 2), Turnover = round(jtu, 2),
+                        Nestedness = round(jac - jtu, 2))
+  cat("\nScomposizione beta-diversità estate vs autunno, per farnia:\n")
+  print(beta_pl, row.names = FALSE)
+  cat("Medie: Jaccard =", round(mean(jac), 2), "| Turnover =", round(mean(jtu), 2),
+      "| Nestedness =", round(mean(jac - jtu), 2), "\n")
+  write.csv2(beta_pl, "tab_beta_stagione_per_pianta.csv", row.names = FALSE)
+}
 
 ## ---- 7. EFFETTO DELL'OSPITE (solo estate: robur vs cerris) ---------------------
 sel_o <- meta_pianta[[col_stag]] == lev_estate
