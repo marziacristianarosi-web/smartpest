@@ -15,7 +15,7 @@
 # =============================================================================
 
 ## ---- 0. CONFIGURAZIONE (adattare ai nomi reali delle colonne) ---------------
-file_dati   <- "G:/Il mio Drive/UNIVERSITA'/LAVORO/DATI_GIULIA_TIZIANA/AnalisiDati_Corythucha.csv"
+file_dati   <- "G:/Il mio Drive/UNIVERSITA'/LAVORO/DATI_GIULIA_TIZIANA/AnalisiDati_Corythucha.xlsx"  # accetta anche .csv
 # Nomi delle colonne del file AnalisiDati_Corythucha.csv
 col_pianta  <- "N_pianta"   # identificativo della pianta (F1..F10, C1..C10)
 col_ospite  <- "Host_species"
@@ -36,12 +36,14 @@ min_occ  <- 3      # n. minimo di piante in cui un taxon deve comparire per i te
 set.seed(2026)
 
 ## ---- 1. PACCHETTI ------------------------------------------------------------
-# install.packages(c("vegan","iNEXT","mvabund","indicspecies","logistf","glmmTMB"))
+# install.packages(c("readxl", "vegan","iNEXT","mvabund","indicspecies","logistf","glmmTMB"))
 library(vegan)
 has <- function(p) requireNamespace(p, quietly = TRUE)
 
 ## ---- 2. LETTURA E PREPARAZIONE -----------------------------------------------
 leggi_csv <- function(f) {
+  if (grepl("\\.xlsx?$", f, ignore.case = TRUE))
+    return(as.data.frame(readxl::read_excel(f, sheet = 1)))
   prima <- readLines(f, n = 1, warn = FALSE)
   if (lengths(regmatches(prima, gregexpr(";", prima))) >
       lengths(regmatches(prima, gregexpr(",", prima))))
