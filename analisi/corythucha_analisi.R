@@ -16,14 +16,18 @@
 
 ## ---- 0. CONFIGURAZIONE (adattare ai nomi reali delle colonne) ---------------
 file_dati   <- "G:/Il mio Drive/UNIVERSITA'/LAVORO/DATI_GIULIA_TIZIANA/AnalisiDati_Corythucha.csv"
-col_pianta  <- "Pianta"     # identificativo della pianta
-col_ospite  <- "Ospite"     # specie di quercia (es. "Q. robur", "Q. cerris")
-col_stag    <- "Stagione"   # "Estate" / "Autunno"
-col_piastra <- "Piastra"    # numero piastra (vuoto/NA per l'autunno)
-lev_robur   <- "Q. robur"
-lev_cerris  <- "Q. cerris"
-lev_estate  <- "Estate"
-lev_autunno <- "Autunno"
+# Nomi delle colonne del file AnalisiDati_Corythucha.csv
+col_pianta  <- "N_pianta"   # identificativo della pianta (F1..F10, C1..C10)
+col_ospite  <- "Host_species"
+col_stag    <- "Season"
+col_piastra <- "Replicate"  # numero piastra (1 in autunno: piastre già aggregate)
+# Colonne numeriche che NON sono taxa. La colonna finale senza nome del CSV è
+# una somma di Excel (Replicate + N_insetti + taxa) e viene esclusa a parte.
+col_escludi <- c("N_insetti")
+lev_robur   <- "Quercus_robur"
+lev_cerris  <- "Quercus_cerris"
+lev_estate  <- "Summer"
+lev_autunno <- "Fall"
 # Le stesse 10 farnie sono state campionate sia in estate sia in autunno?
 # TRUE = disegno appaiato (misure ripetute); FALSE = piante diverse.
 farnie_appaiate <- TRUE    # confermato: stesse 10 farnie in estate e in autunno
@@ -48,9 +52,14 @@ leggi_csv <- function(f) {
 if (!exists("dati_grezzi")) dati_grezzi <- leggi_csv(file_dati)
 
 meta_cols <- intersect(c(col_pianta, col_ospite, col_stag, col_piastra), names(dati_grezzi))
-taxa_cols <- setdiff(names(dati_grezzi), meta_cols)
+# Rimuove colonne senza nome (es. ";" finale nel CSV) e quelle da escludere
+dati_grezzi <- dati_grezzi[, nzchar(names(dati_grezzi)) & !grepl("^(V|X|\\.\\.\\.)[0-9]+$", names(dati_grezzi))]
+taxa_cols <- setdiff(names(dati_grezzi), c(meta_cols, col_escludi))
 taxa_cols <- taxa_cols[vapply(dati_grezzi[taxa_cols], is.numeric, logical(1))]
 stopifnot(length(taxa_cols) > 0)
+non_binari <- taxa_cols[!vapply(dati_grezzi[taxa_cols], function(x) all(x %in% c(0, 1)), logical(1))]
+if (length(non_binari)) warning("Colonne non 0/1 trattate come taxa: ", paste(non_binari, collapse = ", "))
+cat("Taxa analizzati (", length(taxa_cols), "):", paste(taxa_cols, collapse = ", "), "\n")
 dati_grezzi[taxa_cols][is.na(dati_grezzi[taxa_cols])] <- 0
 
 # Gruppo = combinazione ospite × stagione (RE = robur estate, RA = robur autunno, CE = cerris estate)
@@ -309,6 +318,15 @@ if (has("glmmTMB")) {
     }
   }
 }
+
+# 7c. Controllo di un possibile effetto "lotto": nei dati estivi le piante 1-5 e
+#     6-10 differiscono nettamente (es. Penicillium, F. tricinctum) in entrambe le
+#     querce. Da chiarire se corrispondono a date, siti o lotti di isolamento diversi.
+md_o$Blocco <- ifelse(as.integer(gsub("\\D", "", md_o[[col_pianta]])) <= 5, "piante 1-5", "piante 6-10")
+cat("\n--- Ospite al netto del blocco piante 1-5 / 6-10 ---\n")
+print(adonis2(vegdist(pa_o, "jaccard", binary = TRUE) ~ Blocco + md_o[[col_ospite]],
+              data = md_o, by = "terms", permutations = n_perm))
+print(tapply(md_o$Ricchezza, list(md_o$Blocco, md_o[[col_ospite]]), mean))
 
 ## ---- 8. MODELLO UNICO A TRE GRUPPI CON CONTRASTI PIANIFICATI (alternativa) ----
 # Gruppo con 3 livelli (robur-estate, robur-autunno, cerris-estate): l'interazione
