@@ -1,7 +1,8 @@
 # =============================================================================
 # 10_test_ipotesi.R - Passaggio 10: test delle sei ipotesi (un test per domanda, scelto a priori)
 # Quadro unico: inferenza per permutazione; lo schema di permutazione segue il disegno.
-#   Stagione (stesse 10 farnie): scambio delle etichette solo entro pianta, 2^10 = 1024 permutazioni (p esatto)
+#   Stagione (stesse 10 farnie): scambio delle etichette solo entro pianta, tutte le 2^10 = 1024 inversioni (p senza errore Monte Carlo,
+#   esatto rispetto allo schema di permutazione sotto scambiabilità entro pianta)
 #   Ospite (piante diverse):     riassegnazione libera delle etichette, 9999 permutazioni (p = (b+1)/(m+1))
 # D1/D4 ricchezza:      LRT del modello di Poisson generalizzata (glmmTMB), p di permutazione
 # D2/D5 composizione:   PERMANOVA su distanze di Jaccard (vegan::adonis2) + PERMDISP (betadisper, permutest)
@@ -142,7 +143,7 @@ t3$p <- ifelse(nd == 0, 1, mapply(function(b, n) binom.test(b, n)$p.value, t3$b_
 ci <- t(mapply(function(b, n) if (n == 0) c(NA, NA) else binom.test(b, n)$conf.int, t3$b_solo_autunno, pmax(nd, 1)))
 t3$OR_condizionato <- ifelse(nd == 0, NA, t3$b_solo_autunno / t3$c_solo_estate)
 t3$OR_inf <- ci[, 1] / (1 - ci[, 1]); t3$OR_sup <- ci[, 2] / (1 - ci[, 2])
-t3$q_BH <- bh(t3$p, t3$Estate + t3$Autunno > 0)
+t3$p_BH <- bh(t3$p, t3$Estate + t3$Autunno > 0)
 print(t3, digits = 3, row.names = FALSE); salva_tab(t3, "T18_taxa_stagione_D3")
 
 ro <- PA_H[H$g == "Quercus_robur", ]; ce <- PA_H[H$g == "Quercus_cerris", ]; n1 <- nrow(ro); n2 <- nrow(ce)
@@ -152,7 +153,7 @@ t6$p <- sapply(fis, `[[`, "p.value")
 t6$OR_cerro_su_farnia <- sapply(fis, function(x) unname(x$estimate))
 t6$OR_inf <- sapply(fis, function(x) x$conf.int[1]); t6$OR_sup <- sapply(fis, function(x) x$conf.int[2])
 deg <- (t6$Q_robur + t6$Q_cerris) %in% c(0, n1 + n2); t6[deg, c("OR_cerro_su_farnia", "OR_inf", "OR_sup")] <- NA
-t6$q_BH <- bh(t6$p, t6$Q_robur + t6$Q_cerris > 0); t6$p[t6$Q_robur + t6$Q_cerris == 0] <- NA
+t6$p_BH <- bh(t6$p, t6$Q_robur + t6$Q_cerris > 0); t6$p[t6$Q_robur + t6$Q_cerris == 0] <- NA
 print(t6, digits = 3, row.names = FALSE); salva_tab(t6, "T19_taxa_ospite_D6")
 
 # D6 per piastra: numero di piastre positive per pianta (0-4); statistica = differenza tra le medie dei due ospiti;
@@ -163,8 +164,26 @@ D6o <- d6(H$g); D6perm <- apply(P_LIBERE, 1, function(idx) d6(H$g[idx]))
 t6p <- data.frame(Taxon = TAXA, Media_piastre_Q_robur = round(colMeans(fr[H$g == "Quercus_robur", ]), 2),
                   Media_piastre_Q_cerris = round(colMeans(fr[H$g == "Quercus_cerris", ]), 2), Differenza_cerro_meno_farnia = round(D6o, 2))
 t6p$p <- sapply(seq_along(TAXA), function(j) (sum(abs(D6perm[j, ]) >= abs(D6o[j]) - 1e-9) + 1) / (NPERM + 1))
-oss6 <- colSums(fr) > 0; t6p$p[!oss6] <- NA; t6p$q_BH <- bh(t6p$p, oss6)
+oss6 <- colSums(fr) > 0; t6p$p[!oss6] <- NA; t6p$p_BH <- bh(t6p$p, oss6)
 print(t6p, row.names = FALSE); salva_tab(t6p, "T25_taxa_ospite_per_piastra")
+
+# Misura dell'effetto complementare per D6 a piastre separate: modello binomiale misto sulle 80 piastre
+# (presenza nella piastra ~ ospite + (1 | pianta)); odds ratio cerro/farnia con IC dal profilo di verosimiglianza.
+# Solo stima descrittiva: il p-value resta quello di permutazione (scelto a priori). IC non corretti per la molteplicità.
+or_bin <- do.call(rbind, lapply(TAXA[oss6], function(t) {
+  d <- data.frame(y = PA_E[, t], g = E$g, pl = E$pl)
+  m <- try(suppressWarnings(glmmTMB(y ~ g + (1 | pl), family = binomial, data = d)), silent = TRUE)
+  ok <- !inherits(m, "try-error") && m$fit$convergence == 0 && isTRUE(m$sdr$pdHess)
+  ci <- if (ok) try(suppressWarnings(confint(m, parm = "gQuercus_cerris", method = "profile")), silent = TRUE) else NULL
+  se <- if (ok) summary(m)$coefficients$cond[2, 2] else NA
+  stimabile <- ok && se < 10 && !inherits(ci, "try-error")   # se enorme = separazione (taxon in una sola piastra)
+  data.frame(Taxon = t, Piastre_pos_robur = sum(d$y[d$g == "Quercus_robur"]), Piastre_pos_cerris = sum(d$y[d$g == "Quercus_cerris"]),
+             OR_cerro_su_farnia = if (stimabile) round(exp(fixef(m)$cond[2]), 3) else NA,
+             IC95_inf = if (stimabile) round(exp(ci[1, 1]), 3) else NA, IC95_sup = if (stimabile) round(exp(ci[1, 2]), 3) else NA,
+             Varianza_pianta = if (ok) signif(VarCorr(m)$cond$pl[1], 3) else NA,
+             Nota = if (stimabile) "" else "non stimabile (separazione)")
+}))
+print(or_bin, row.names = FALSE); salva_tab(or_bin, "T27_OR_binomiale_misto_piastre")
 
 # ---- Figura: distribuzioni nulle di permutazione e statistica osservata (D1, D4) ----
 nulla <- function(L, oss, tit, sotto) {

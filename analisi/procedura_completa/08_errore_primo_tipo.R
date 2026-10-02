@@ -5,10 +5,10 @@
 #   2 Wald t           stessa statistica confrontata con t di Student, gl = piante - parametri a livello di pianta
 #   3 LRT chi²         rapporto di verosimiglianza confrontato con chi² a 1 gl
 #   4 LRT bootstrap    distribuzione dell'LRT ricavata simulando dal modello nullo stimato (bootstrap parametrico)
-#   5 LRT permutazione distribuzione dell'LRT ricavata permutando le etichette secondo il disegno: esatto per
-#                      costruzione se le osservazioni sono scambiabili sotto H0 (non richiede simulazione)
+#   5 LRT permutazione distribuzione dell'LRT ricavata permutando le etichette secondo il disegno: livello alfa
+#                      garantito solo se le osservazioni sono scambiabili sotto H0 (non richiede simulazione)
 # Modelli: D1 (GLMM appaiato), D4 per pianta (GLM), D4 per piastra (GLMM, dispersione per ospite: vedi A.7, A4).
-# Più la distribuzione di permutazione esatta dell'LRT della domanda 1 (1024 permutazioni).
+# Più la distribuzione di permutazione completa dell'LRT della domanda 1 (tutte le 1024 inversioni entro pianta).
 # =============================================================================
 if (!exists("PIANTE")) source("00_impostazioni.R")
 set.seed(11)
@@ -56,22 +56,23 @@ if (RICALCOLA || !file.exists(file_cal)) {
                Falsi_positivi_perc = c(tasso(r1[, 1]), tasso(r1[, 2]), tasso(r1[, 3]), tasso(rb[, 4]), 5),
                ES_MonteCarlo = c(se(r1[, 1]), se(r1[, 2]), se(r1[, 3]), se(rb[, 4]), NA),
                Insiemi_simulati = c(rep(sum(!is.na(r1[, 1])), 3), sum(!is.na(rb[, 4])), NA),
-               Nota = c("", "", "", "", "esatto per costruzione (scambiabilità sotto H0)"))
+               Nota = c("", "", "", "", "livello alfa se le unità sono scambiabili sotto H0 (non stimato per simulazione)"))
   }))
   print(cal, row.names = FALSE); salva_tab(cal, "T13_confronto_metodi_test")
 } else cal <- as.data.frame(read_excel(file_cal))
 # Livello nominale: con B = 39 repliche il p bootstrap vale (k + 1)/40; il criterio p < 0,05 è soddisfatto solo con k = 0,
 # quindi il tasso atteso sotto H0 è 1/40 = 2,5%. Per gli altri metodi è il 5%.
 cal$Livello_nominale_perc <- ifelse(grepl("bootstrap", cal$Metodo), 100 / (B + 1), 5)
+cal$Nota[cal$Metodo == "LRT permutazione"] <- "livello alfa se le unità sono scambiabili sotto H0 (non stimato per simulazione)"
 salva_tab(cal, "T13_confronto_metodi_test")
 
-# distribuzione di permutazione esatta entro pianta dell'LRT della domanda 1 (usata anche dal test, passaggio 10)
+# distribuzione di permutazione completa entro pianta dell'LRT della domanda 1 (usata anche dal test, passaggio 10)
 fileL1 <- file.path(DIR_TAB, "D1_distribuzione_permutazione.rds")
 L1 <- if (!RICALCOLA && file.exists(fileL1)) readRDS(fileL1) else unlist(in_parallelo(seq_len(nrow(PERM_ENTRO)), function(i, S, P) {
   dd <- S; dd$g <- S$g[P[i, ]]; lrt_gp(R ~ g + (1 | pl), R ~ 1 + (1 | pl), dd) }, S = S, P = PERM_ENTRO))
 saveRDS(L1, fileL1)
 perm_tab <- data.frame(Permutazioni_valide = sum(!is.na(L1)),
-                       Quota_p_chi2_sotto_0.05 = round(100 * mean(pchisq(L1, 1, lower.tail = FALSE) < 0.05, na.rm = TRUE), 1),
+                       Rigetto_condizionale_chi2_perc = round(100 * mean(pchisq(L1, 1, lower.tail = FALSE) < 0.05, na.rm = TRUE), 1),
                        Percentile95_permutazione = round(quantile(L1, 0.95, na.rm = TRUE), 2), Percentile95_chi2 = 3.84)
 print(perm_tab); salva_tab(perm_tab, "T14_permutazione_vs_chi2_D1")
 
@@ -92,6 +93,6 @@ p2 <- ggplot(cl, aes(Metodo, Falsi_positivi_perc)) +
   facet_wrap(~ Modello, ncol = 1) +
   scale_fill_manual(values = c(`FALSE` = "grey60", `TRUE` = "grey85")) +
   labs(x = NULL, y = "Falsi positivi (%)", title = "Falsi positivi per metodo di test",
-       subtitle = "Dati simulati senza effetto; barre = IC 95% Monte Carlo\nTratteggio rosso: livello nominale (5%; 2,5% per il bootstrap con B = 39)\npermutazione = esatta per costruzione") +
+       subtitle = "Dati simulati senza effetto; barre = IC 95% Monte Carlo\nTratteggio rosso: livello nominale (5%; 2,5% per il bootstrap con B = 39)\npermutazione: livello alfa se le piante sono scambiabili sotto H0") +
   TEMA + theme(strip.background = element_blank(), axis.text.x = element_text(angle = 25, hjust = 1))
 salva_fig(p1 + p2 + plot_layout(widths = c(1, 1.3)) + plot_annotation(tag_levels = "A"), "F06_errore_primo_tipo", 190, 150)

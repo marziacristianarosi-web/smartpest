@@ -120,7 +120,7 @@ lg <- reshape(inc, direction = "long", varying = TAXA, v.names = "n", timevar = 
 nm <- function(x) { x <- sub("Thrichoderma", "Trichoderma", gsub("_", " ", x)); x <- sub(" [Ss]pp(\\d)$", " sp. \\1", x); sub(" [Ss]pp$", " sp.", x) }
 dif <- unlist(inc[inc$gr == "farnia_estate", TAXA]) - unlist(inc[inc$gr == "farnia_autunno", TAXA])
 lg$taxon <- factor(nm(lg$taxon), levels = nm(TAXA[order(dif, colSums(PA[, TAXA]))]))
-sig <- t3$Taxon[!is.na(t3$q_BH) & t3$q_BH < 0.05]       # taxa con q < 0,05 (domanda 3)
+sig <- t3$Taxon[!is.na(t3$p_BH) & t3$p_BH < 0.05]       # taxa con p_BH < 0,05 (domanda 3)
 lg$etichetta <- ifelse(lg$n == 0, "", lg$n)
 p3 <- ggplot(lg, aes(gr, taxon)) + geom_tile(aes(fill = n), colour = "white", linewidth = 0.8) +
   geom_text(aes(label = etichetta, colour = n >= 6), size = 2.7, family = FONT) +
@@ -140,7 +140,7 @@ salva_fig(p3, "F11_incidenza_taxa", 120, 110)
 t6p <- as.data.frame(read_excel(file.path(DIR_TAB, "T25_taxa_ospite_per_piastra.xlsx")))
 fq <- rbind(data.frame(taxon = t6p$Taxon, gr = "farnia_estate", n = t6p$Media_piastre_Q_robur),
             data.frame(taxon = t6p$Taxon, gr = "cerro_estate", n = t6p$Media_piastre_Q_cerris))
-sig6p <- t6p$Taxon[!is.na(t6p$q_BH) & t6p$q_BH < 0.05]   # taxa con q < 0,05 (domanda 6, piastre separate)
+sig6p <- t6p$Taxon[!is.na(t6p$p_BH) & t6p$p_BH < 0.05]   # taxa con p_BH < 0,05 (domanda 6, piastre separate)
 fq$gr <- factor(fq$gr, levels = c("farnia_estate", "cerro_estate")); fq$taxon <- factor(nm(fq$taxon), levels = levels(lg$taxon))
 p3b <- ggplot(fq, aes(gr, taxon)) + geom_tile(aes(fill = n), colour = "white", linewidth = 0.8) +
   geom_text(aes(label = ifelse(n == 0, "", formatC(n, format = "f", digits = 1, decimal.mark = ",")), colour = n >= 2.4), size = 2.7, family = FONT) +
