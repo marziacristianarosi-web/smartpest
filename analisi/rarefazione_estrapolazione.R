@@ -6,7 +6,7 @@ suppressMessages({library(readxl); library(iNEXT)}); set.seed(2026)
 d <- as.data.frame(read_excel(file_dati)); tx <- names(d)[6:19]
 key <- paste(d$Season, d$Host_species, d$N_pianta)
 pa <- (rowsum(as.matrix(d[tx]), key, reorder=FALSE) > 0)*1
-grp <- sub(" [A-Z][0-9]+$","", rownames(pa))
+grp <- sub(" [^ ]+$","", rownames(pa))
 lab <- c("Fall Quercus_robur"="Farnia - autunno","Summer Quercus_robur"="Farnia - estate","Summer Quercus_cerris"="Cerro - estate")
 inc <- lapply(names(lab), function(g){ m <- pa[grp==g,]; c(nrow(m), colSums(m)) }); names(inc) <- lab
 out <- iNEXT(inc, q=c(0,1,2), datatype="incidence_freq", endpoint=20, nboot=200)

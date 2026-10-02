@@ -6,7 +6,7 @@ suppressMessages({library(readxl)})
 d <- as.data.frame(read_excel(file_dati)); tx <- names(d)[6:19]
 key <- paste(d$Season, d$Host_species, d$N_pianta)
 pa <- (rowsum(as.matrix(d[tx]), key, reorder=FALSE) > 0)*1
-grp <- sub(" [A-Z][0-9]+$","", rownames(pa))
+grp <- sub(" [^ ]+$","", rownames(pa))
 lab <- c("Fall Quercus_robur"="Farnia - autunno","Summer Quercus_robur"="Farnia - estate","Summer Quercus_cerris"="Cerro - estate")
 stima <- function(m){
   T <- nrow(m); y <- colSums(m); y <- y[y>0]; S <- length(y); U <- sum(y); Q1 <- sum(y==1); Q2 <- sum(y==2)
@@ -18,6 +18,9 @@ stima <- function(m){
     v <- if (Q2>0) { k <- (T-1)/T; Q2*(k*0.5*(Q1/Q2)^2 + k^2*(Q1/Q2)^3 + k^2*0.25*(Q1/Q2)^4) } else {
       k <- (T-1)/T; k*Q1*(Q1-1)/2 + k^2*Q1*(2*Q1-1)^2/4 - k^2*Q1^4/(4*ch) }
     se <- sqrt(v); K <- exp(1.96*sqrt(log(1+v/f0^2))); lo <- S + f0/K; hi <- S + f0*K }
+  # con f0 stimato = 0 l'IC log-normale non è definito: si usa la procedura di iNEXT (Chao et al. 2014)
+  if (Q1 > 0 && f0 == 0) { cr <- iNEXT::ChaoRichness(c(T, colSums(m)), datatype = "incidence_freq")
+    se <- cr$Est_s.e.; lo <- cr$`95% Lower`; hi <- cr$`95% Upper` }
   # copertura del campione (Chao & Jost 2012; Chao et al. 2014)
   A <- if (Q2>0) (T-1)*Q1/((T-1)*Q1+2*Q2) else if (Q1>0) (T-1)*(Q1-1)/((T-1)*(Q1-1)+2) else 1
   cov <- 1 - Q1/U*A

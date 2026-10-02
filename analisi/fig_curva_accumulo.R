@@ -6,7 +6,7 @@ suppressMessages({library(readxl); library(vegan); library(ggplot2)})
 d <- as.data.frame(read_excel(file_dati)); tx <- names(d)[6:19]
 key <- paste(d$Season, d$Host_species, d$N_pianta)
 pa <- (rowsum(as.matrix(d[tx]), key, reorder=FALSE) > 0)*1
-grp <- sub(" [A-Z][0-9]+$","", rownames(pa))
+grp <- sub(" [^ ]+$","", rownames(pa))
 lab <- c("Fall Quercus_robur"="Farnia - autunno", "Summer Quercus_robur"="Farnia - estate", "Summer Quercus_cerris"="Cerro - estate")
 col <- c("Farnia - autunno"="#eb6834", "Farnia - estate"="#2a78d6", "Cerro - estate"="#1baf7a")
 cur <- do.call(rbind, lapply(names(lab), function(g){
