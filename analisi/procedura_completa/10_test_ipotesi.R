@@ -6,7 +6,12 @@
 # D1/D4 ricchezza:      LRT del modello di Poisson generalizzata (glmmTMB), p di permutazione
 # D2/D5 composizione:   PERMANOVA su distanze di Jaccard (vegan::adonis2) + PERMDISP (betadisper, permutest)
 # D3/D6 singoli taxa:   McNemar esatto (binom.test sulle coppie discordanti) / Fisher esatto (fisher.test),
-#                       esclusione delle ipotesi non verificabili (Tarone 1990) e FDR di Benjamini-Hochberg (Gilbert 2005)
+#                       correzione di Benjamini-Hochberg (1995) sui taxa osservati nel confronto
+# Versione per piastra delle domande 4-6 (estate, 4 piastre per pianta): le unità restano le piante, quindi si
+# permutano piante intere (con tutte le loro piastre): D4 GLMM con (1|pianta); D5 PERMANOVA sulle piastre;
+# D6 numero di piastre positive per pianta (0-4).
+# Analisi di sensibilità per la composizione: test W*d robusto a dispersioni diverse (Hamidi et al. 2019;
+# pacchetto WdStar, installazione: remotes::install_github("alekseyenko/WdStar")).
 # =============================================================================
 if (!exists("PIANTE")) source("00_impostazioni.R")
 set.seed(20261002)
@@ -42,20 +47,34 @@ r4 <- rapporto(f4)
 D4 <- data.frame(Domanda = "D4 ricchezza ~ ospite", Media_gruppo1 = mean(H$R[H$g == "Quercus_robur"]), Media_gruppo2 = mean(H$R[H$g == "Quercus_cerris"]),
                  Rapporto_medie = r4[1], IC95_inf = r4[2], IC95_sup = r4[3], LRT = L4_oss, Permutazioni = sum(!is.na(L4)),
                  p = (sum(L4[!is.na(L4)] >= L4_oss - 1e-8) + 1) / (sum(!is.na(L4)) + 1))
-ric <- rbind(D1, D4); ric[, -1] <- round(ric[, -1], 4)
+# ---- D4 per piastra: GLMM R ~ ospite + (1|pianta), dispersione diversa per ospite (A.7: A4 non rispettata) ----
+f4p <- glmmTMB(R ~ g + (1 | pl), dispformula = ~ g, data = E, family = genpois())
+lrt_p <- function(dd) { a <- try(suppressWarnings(glmmTMB(R ~ g + (1 | pl), dispformula = ~ g, data = dd, family = genpois())), silent = TRUE)
+  b <- try(suppressWarnings(glmmTMB(R ~ 1 + (1 | pl), dispformula = ~ g, data = dd, family = genpois())), silent = TRUE)
+  if (inherits(a, "try-error") || inherits(b, "try-error")) NA else as.numeric(2 * (logLik(a) - logLik(b))) }
+L4p_oss <- lrt_p(E)
+fileL4p <- file.path(DIR_TAB, "D4p_distribuzione_permutazione.rds")
+L4p <- if (!RICALCOLA && file.exists(fileL4p)) readRDS(fileL4p) else unlist(in_parallelo(seq_len(NPERM), function(i, E, P, perm_piante, lrt_p) {
+  dd <- E; dd$g <- perm_piante(P[i, ]); lrt_p(dd) }, E = E, P = P_LIBERE, perm_piante = perm_piante, lrt_p = lrt_p, esporta = c("H", "E")))
+saveRDS(L4p, fileL4p)
+r4p <- rapporto(f4p)
+D4pr <- data.frame(Domanda = "D4 ricchezza per piastra ~ ospite", Media_gruppo1 = mean(E$R[E$g == "Quercus_robur"]),
+                   Media_gruppo2 = mean(E$R[E$g == "Quercus_cerris"]), Rapporto_medie = r4p[1], IC95_inf = r4p[2], IC95_sup = r4p[3],
+                   LRT = L4p_oss, Permutazioni = sum(!is.na(L4p)), p = (sum(L4p[!is.na(L4p)] >= L4p_oss - 1e-8) + 1) / (sum(!is.na(L4p)) + 1))
+ric <- rbind(D1, D4, D4pr); ric[, -1] <- round(ric[, -1], 4)
 print(ric, row.names = FALSE); salva_tab(ric, "T16_ricchezza_D1_D4")
-capture.output(summary(f1), summary(f4), file = file.path(DIR_LOG, "modelli_ricchezza.txt"))
+capture.output(summary(f1), summary(f4), summary(f4p), file = file.path(DIR_LOG, "modelli_ricchezza.txt"))
 
 # ---- Verifica di robustezza (dichiarata, non un secondo test): differenza tra le medie come statistica ----
 # Stesse permutazioni dell'LRT; la validità del test di permutazione non dipende dalla statistica (Good 2005).
 dm <- function(y, g, a, b) mean(y[g == a]) - mean(y[g == b])
-D1p <- apply(PERM_ENTRO, 1, function(idx) dm(S$R, S$g[idx], "Summer", "Fall")); D1o <- dm(S$R, S$g, "Summer", "Fall")
-D4p <- apply(P_LIBERE, 1, function(idx) dm(H$R, H$g[idx], "Quercus_cerris", "Quercus_robur")); D4o <- dm(H$R, H$g, "Quercus_cerris", "Quercus_robur")
+Dd1 <- apply(PERM_ENTRO, 1, function(idx) dm(S$R, S$g[idx], "Summer", "Fall")); D1o <- dm(S$R, S$g, "Summer", "Fall")
+Dd4 <- apply(P_LIBERE, 1, function(idx) dm(H$R, H$g[idx], "Quercus_cerris", "Quercus_robur")); D4o <- dm(H$R, H$g, "Quercus_cerris", "Quercus_robur")
 rob <- data.frame(Domanda = c("D1", "D4"), Differenza_medie = c(D1o, D4o),
-  p_differenza_medie = c(mean(abs(D1p) >= abs(D1o) - 1e-9), (sum(abs(D4p) >= abs(D4o) - 1e-9) + 1) / (NPERM + 1)),
+  p_differenza_medie = c(mean(abs(Dd1) >= abs(D1o) - 1e-9), (sum(abs(Dd4) >= abs(D4o) - 1e-9) + 1) / (NPERM + 1)),
   p_LRT = c(D1$p, D4$p),
-  Correlazione_rango_LRT_vs_diff = c(cor(L1, abs(D1p), method = "spearman", use = "complete.obs"),
-                                     cor(L4, abs(D4p), method = "spearman", use = "complete.obs")))
+  Correlazione_rango_LRT_vs_diff = c(cor(L1, abs(Dd1), method = "spearman", use = "complete.obs"),
+                                     cor(L4, abs(Dd4), method = "spearman", use = "complete.obs")))
 rob[, -1] <- round(rob[, -1], 4); print(rob, row.names = FALSE); salva_tab(rob, "T20_robustezza_statistica")
 
 # ---- D2 e D5: composizione (PERMANOVA + PERMDISP) ----
@@ -65,13 +84,33 @@ a2 <- adonis2(dS ~ pl + g, data = S, permutations = P2, by = "terms")
 b2 <- betadisper(dS, S$g); pd2 <- permutest(b2, permutations = P2)
 a5 <- adonis2(dH ~ g, data = H, permutations = NPERM)
 b5 <- betadisper(dH, H$g); pd5 <- permutest(b5, permutations = NPERM)
-comp <- data.frame(Domanda = c("D2 composizione ~ stagione", "D5 composizione ~ ospite"),
-  Pseudo_F = c(a2["g", "F"], a5["g", "F"]), R2 = c(a2["g", "R2"], a5["g", "R2"]), p_PERMANOVA = c(a2["g", "Pr(>F)"], a5["g", "Pr(>F)"]),
-  Dispersione_gruppo1 = c(mean(b2$distances[S$g == "Summer"]), mean(b5$distances[H$g == "Quercus_robur"])),
-  Dispersione_gruppo2 = c(mean(b2$distances[S$g == "Fall"]), mean(b5$distances[H$g == "Quercus_cerris"])),
-  F_PERMDISP = c(pd2$tab[1, "F"], pd5$tab[1, "F"]), p_PERMDISP = c(pd2$tab[1, "Pr(>F)"], pd5$tab[1, "Pr(>F)"]))
+# D5 per piastra: 80 piastre, permutazione di piante intere (ogni pianta porta con sé le sue 4 piastre)
+dE <- vegdist(PA_E, method = "jaccard", binary = TRUE)
+CTRL_P <- how(plots = Plots(strata = E$pl, type = "free"), within = Within(type = "none"), nperm = NPERM)
+a5p <- adonis2(dE ~ g, data = E, permutations = CTRL_P)
+b5p <- betadisper(dE, E$g); pd5p <- permutest(b5p, permutations = CTRL_P)
+comp <- data.frame(Domanda = c("D2 composizione ~ stagione", "D5 composizione ~ ospite", "D5 composizione per piastra ~ ospite"),
+  Pseudo_F = c(a2["g", "F"], a5["g", "F"], a5p["g", "F"]), R2 = c(a2["g", "R2"], a5["g", "R2"], a5p["g", "R2"]),
+  p_PERMANOVA = c(a2["g", "Pr(>F)"], a5["g", "Pr(>F)"], a5p["g", "Pr(>F)"]),
+  Dispersione_gruppo1 = c(mean(b2$distances[S$g == "Summer"]), mean(b5$distances[H$g == "Quercus_robur"]), mean(b5p$distances[E$g == "Quercus_robur"])),
+  Dispersione_gruppo2 = c(mean(b2$distances[S$g == "Fall"]), mean(b5$distances[H$g == "Quercus_cerris"]), mean(b5p$distances[E$g == "Quercus_cerris"])),
+  F_PERMDISP = c(pd2$tab[1, "F"], pd5$tab[1, "F"], pd5p$tab[1, "F"]),
+  p_PERMDISP = c(pd2$tab[1, "Pr(>F)"], pd5$tab[1, "Pr(>F)"], pd5p$tab[1, "Pr(>F)"]))
+# Sensibilità: test W*d (statistica Tw2 di Welch per due gruppi, robusta a dispersioni diverse; Hamidi et al. 2019)
+# con lo stesso schema di permutazione: tutte le 1024 permutazioni entro pianta (D2), 9999 libere (D5)
+Tw2 <- WdStar::Tw2
+T2_oss <- Tw2(dS, S$g); T2 <- apply(PERM_ENTRO, 1, function(idx) Tw2(dS, S$g[idx]))
+T5_oss <- Tw2(dH, H$g); T5 <- apply(P_LIBERE, 1, function(idx) Tw2(dH, H$g[idx]))
+# piastre separate: 80 piastre, permutazioni di piante intere (stesse 9999 riassegnazioni delle piante)
+T5p_oss <- Tw2(dE, E$g); T5p <- apply(P_LIBERE, 1, function(idx) Tw2(dE, perm_piante(idx)))
+wd <- data.frame(Domanda = c("D2 stagione (1024 permutazioni entro pianta)", "D5 ospite (9999 permutazioni libere)",
+                             "D5 ospite per piastra (9999 permutazioni di piante intere)"),
+                 Tw2 = round(c(T2_oss, T5_oss, T5p_oss), 3),
+                 p = round(c(mean(T2 >= T2_oss - 1e-9), (sum(T5 >= T5_oss - 1e-9) + 1) / (NPERM + 1),
+                             (sum(T5p >= T5p_oss - 1e-9) + 1) / (NPERM + 1)), 4))
+print(wd, row.names = FALSE); salva_tab(wd, "T24_Wd_sensibilita")
 comp[, -1] <- round(comp[, -1], 4); print(comp, row.names = FALSE); salva_tab(comp, "T17_composizione_D2_D5")
-capture.output(a2, pd2, a5, pd5, file = file.path(DIR_LOG, "permanova_permdisp.txt"))
+capture.output(a2, pd2, a5, pd5, a5p, pd5p, file = file.path(DIR_LOG, "permanova_permdisp.txt"))
 # Tabelle complete (formato ANOVA). Nel modello stagionale il termine pianta serve solo a rappresentare
 # l'appaiamento: con permutazioni entro pianta non è saggiabile, quindi il suo p-value non è riportato.
 tab_pm <- function(a, dom, fattore) { x <- as.data.frame(a)
@@ -80,35 +119,30 @@ tab_pm <- function(a, dom, fattore) { x <- as.data.frame(a)
              Media_quadrati = round(x$SumOfSqs / x$Df, 4), Pseudo_F = round(x$F, 3), R2 = round(x$R2, 3),
              p = round(x$`Pr(>F)`, 4)) }
 pm <- rbind(tab_pm(a2, "D2 stagione (permutazioni entro pianta, 1024)", "Stagione"),
-            tab_pm(a5, "D5 ospite (permutazioni libere, 9999)", "Ospite"))
+            tab_pm(a5, "D5 ospite (permutazioni libere, 9999)", "Ospite"),
+            tab_pm(a5p, "D5 ospite per piastra (permutazioni di piante intere, 9999)", "Ospite"))
 pm$p[pm$Fonte == "Pianta"] <- NA; pm$Media_quadrati[pm$Fonte == "Totale"] <- NA
 print(pm, row.names = FALSE); salva_tab(pm, "T21_PERMANOVA")
 tab_pd <- function(pt, b, g, dom) { x <- as.data.frame(pt$tab); m <- tapply(b$distances, g, mean)
   data.frame(Domanda = dom, Fonte = c("Gruppi", "Residuo"), gl = x$Df, Somma_quadrati = round(x$`Sum Sq`, 4),
              Media_quadrati = round(x$`Mean Sq`, 4), F = round(x$F, 3), Permutazioni = x$N.Perm, p = round(x$`Pr(>F)`, 4),
              Distanza_media_dal_centroide = c(paste(names(m), sprintf("%.3f", m), collapse = "; "), NA)) }
-pdd <- rbind(tab_pd(pd2, b2, S$g, "D2 stagione"), tab_pd(pd5, b5, H$g, "D5 ospite"))
+pdd <- rbind(tab_pd(pd2, b2, S$g, "D2 stagione"), tab_pd(pd5, b5, H$g, "D5 ospite"), tab_pd(pd5p, b5p, E$g, "D5 ospite per piastra"))
 print(pdd, row.names = FALSE); salva_tab(pdd, "T22_PERMDISP")
 
 # ---- D3 e D6: singoli taxa ----
-tarone_bh <- function(p, pmin, alpha = 0.05) {
-  m <- length(p); K <- 1
-  while (K <= m && sum(pmin <= alpha / K) > K) K <- K + 1
-  R <- pmin <= alpha / K; q <- rep(NA_real_, m); q[R] <- p.adjust(p[R], "BH")
-  list(K = K, testabili = R, q = q)
-}
+# Correzione di Benjamini-Hochberg sui taxa osservati nel confronto (presenti in almeno una pianta)
+bh <- function(p, osservato) { q <- rep(NA_real_, length(p)); q[osservato] <- p.adjust(p[osservato], "BH"); q }
 fa <- PA_S[S$g == "Fall", ]; su <- PA_S[S$g == "Summer", ]
 stopifnot(identical(S$pl[S$g == "Fall"], S$pl[S$g == "Summer"]))
 t3 <- data.frame(Taxon = TAXA, Estate = colSums(su), Autunno = colSums(fa),
                  b_solo_autunno = colSums(fa == 1 & su == 0), c_solo_estate = colSums(fa == 0 & su == 1))
 nd <- t3$b_solo_autunno + t3$c_solo_estate
 t3$p <- ifelse(nd == 0, 1, mapply(function(b, n) binom.test(b, n)$p.value, t3$b_solo_autunno, pmax(nd, 1)))
-t3$p_minimo <- pmin(1, 2 * 0.5^nd)
 ci <- t(mapply(function(b, n) if (n == 0) c(NA, NA) else binom.test(b, n)$conf.int, t3$b_solo_autunno, pmax(nd, 1)))
 t3$OR_condizionato <- ifelse(nd == 0, NA, t3$b_solo_autunno / t3$c_solo_estate)
 t3$OR_inf <- ci[, 1] / (1 - ci[, 1]); t3$OR_sup <- ci[, 2] / (1 - ci[, 2])
-tb3 <- tarone_bh(t3$p, t3$p_minimo); t3$Saggiabile <- tb3$testabili; t3$q_BH <- tb3$q
-cat(sprintf("D3: ipotesi verificabili (Tarone, K = %d): %d su %d\n", tb3$K, sum(tb3$testabili), length(TAXA)))
+t3$q_BH <- bh(t3$p, t3$Estate + t3$Autunno > 0)
 print(t3, digits = 3, row.names = FALSE); salva_tab(t3, "T18_taxa_stagione_D3")
 
 ro <- PA_H[H$g == "Quercus_robur", ]; ce <- PA_H[H$g == "Quercus_cerris", ]; n1 <- nrow(ro); n2 <- nrow(ce)
@@ -117,13 +151,20 @@ fis <- lapply(seq_along(TAXA), function(j) fisher.test(matrix(c(t6$Q_cerris[j], 
 t6$p <- sapply(fis, `[[`, "p.value")
 t6$OR_cerro_su_farnia <- sapply(fis, function(x) unname(x$estimate))
 t6$OR_inf <- sapply(fis, function(x) x$conf.int[1]); t6$OR_sup <- sapply(fis, function(x) x$conf.int[2])
-t6$p_minimo <- sapply(t6$Q_robur + t6$Q_cerris, function(k) {   # tabella più estrema con lo stesso margine
-  if (k == 0 || k == n1 + n2) return(1)
-  a <- min(k, n2); fisher.test(matrix(c(a, n2 - a, k - a, n1 - (k - a)), 2))$p.value })
 deg <- (t6$Q_robur + t6$Q_cerris) %in% c(0, n1 + n2); t6[deg, c("OR_cerro_su_farnia", "OR_inf", "OR_sup")] <- NA
-tb6 <- tarone_bh(t6$p, t6$p_minimo); t6$Saggiabile <- tb6$testabili; t6$q_BH <- tb6$q
-cat(sprintf("D6: ipotesi verificabili (Tarone, K = %d): %d su %d\n", tb6$K, sum(tb6$testabili), length(TAXA)))
+t6$q_BH <- bh(t6$p, t6$Q_robur + t6$Q_cerris > 0); t6$p[t6$Q_robur + t6$Q_cerris == 0] <- NA
 print(t6, digits = 3, row.names = FALSE); salva_tab(t6, "T19_taxa_ospite_D6")
+
+# D6 per piastra: numero di piastre positive per pianta (0-4); statistica = differenza tra le medie dei due ospiti;
+# p da 9999 permutazioni libere delle piante (le stesse della domanda 4); correzione di Benjamini-Hochberg
+fr <- FREQ_H
+d6 <- function(g) colMeans(fr[g == "Quercus_cerris", , drop = FALSE]) - colMeans(fr[g == "Quercus_robur", , drop = FALSE])
+D6o <- d6(H$g); D6perm <- apply(P_LIBERE, 1, function(idx) d6(H$g[idx]))
+t6p <- data.frame(Taxon = TAXA, Media_piastre_Q_robur = round(colMeans(fr[H$g == "Quercus_robur", ]), 2),
+                  Media_piastre_Q_cerris = round(colMeans(fr[H$g == "Quercus_cerris", ]), 2), Differenza_cerro_meno_farnia = round(D6o, 2))
+t6p$p <- sapply(seq_along(TAXA), function(j) (sum(abs(D6perm[j, ]) >= abs(D6o[j]) - 1e-9) + 1) / (NPERM + 1))
+oss6 <- colSums(fr) > 0; t6p$p[!oss6] <- NA; t6p$q_BH <- bh(t6p$p, oss6)
+print(t6p, row.names = FALSE); salva_tab(t6p, "T25_taxa_ospite_per_piastra")
 
 # ---- Figura: distribuzioni nulle di permutazione e statistica osservata (D1, D4) ----
 nulla <- function(L, oss, tit, sotto) {
@@ -139,3 +180,6 @@ salva_fig(nulla(L1, L1_oss, "D1: 1024 permutazioni entro pianta", sprintf("Rosso
           "F08A_permutazioni_D1", 100, 75)
 salva_fig(nulla(L4, L4_oss, "D4: 9999 permutazioni libere", sprintf("Rosso: valore osservato (LRT = %s; p = %s)", virgola(L4_oss, 3), virgola(D4$p, 2))),
           "F08B_permutazioni_D4", 100, 75)
+fp4 <- function(p) if (p < 0.001) "p < 0,001" else paste("p =", virgola(p, 3))
+salva_fig(nulla(L4p, L4p_oss, "D4 per piastra: 9999 permutazioni di piante", sprintf("Rosso: valore osservato (LRT = %s; %s)", virgola(L4p_oss, 2), fp4(D4pr$p))),
+          "F08C_permutazioni_D4_piastra", 100, 75)

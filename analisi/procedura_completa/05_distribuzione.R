@@ -1,18 +1,22 @@
 # =============================================================================
 # 05_distribuzione.R - Passaggio 5: distribuzione delle variabili risposta
-# (a) ricchezza per pianta: rapporto varianza/media e test di dispersione di Poisson
-#     D = (n-1)·s²/media ~ chi² con n-1 gl; P(D <= osservato) = evidenza di sottodispersione
+# (a) ricchezza: rapporto varianza/media (descrittivo; con Poisson vale 1). La scelta formale della
+#     distribuzione è fatta per AIC in 06_scelta_distribuzione.R
 # (b) incidenza dei singoli taxa: struttura delle tabelle 2x2 e separazione
 # =============================================================================
 if (!exists("PIANTE")) source("00_impostazioni.R")
 
 disp <- do.call(rbind, lapply(levels(PIANTE$gruppo), function(g) {
-  r <- PIANTE$R[PIANTE$gruppo == g]; n <- length(r); D <- (n - 1) * var(r) / mean(r)
-  data.frame(Gruppo = ETI[g], Valori = paste(sort(r), collapse = " "), Media = mean(r), Varianza = round(var(r), 2),
-             Var_su_media = round(var(r) / mean(r), 2), Chi2 = round(D, 2), gl = n - 1,
-             P_sottodispersione = round(pchisq(D, n - 1), 4))
+  r <- PIANTE$R[PIANTE$gruppo == g]
+  data.frame(Unita = "pianta (12 insetti)", Gruppo = ETI[g], Valori = paste(sort(r), collapse = " "), Media = mean(r),
+             Varianza = round(var(r), 2), Var_su_media = round(var(r) / mean(r), 2))
 }))
-print(disp, row.names = FALSE); salva_tab(disp, "T08_dispersione_ricchezza")
+disp_p <- do.call(rbind, lapply(levels(E$g), function(g) { r <- E$R[E$g == g]
+  data.frame(Unita = "piastra (3 insetti)", Gruppo = paste0(sub("Quercus_", "Q. ", g), ", estate"),
+             Valori = paste(names(table(r)), table(r), sep = ":", collapse = " "), Media = round(mean(r), 2),
+             Varianza = round(var(r), 2), Var_su_media = round(var(r) / mean(r), 2)) }))
+print(disp_p, row.names = FALSE)
+print(disp, row.names = FALSE); salva_tab(rbind(disp, disp_p), "T08_dispersione_ricchezza")
 
 # differenze appaiate estate - autunno
 dif <- S$R[S$g == "Summer"] - S$R[S$g == "Fall"]

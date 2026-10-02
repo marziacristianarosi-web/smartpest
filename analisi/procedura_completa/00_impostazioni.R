@@ -63,6 +63,16 @@ iH <- which(PIANTE$Season == "Summer")
 H <- PIANTE[iH, ]; H$g <- factor(H$Host_species, levels = c("Quercus_robur", "Quercus_cerris"))
 PA_H <- PA[iH, ]
 
+# Domande 4-6, versione per piastra: estate, 4 piastre (3 insetti ciascuna) per pianta.
+# L'ospite è assegnato alla pianta: le unità indipendenti restano 10 + 10 piante; le piastre sono sottocampioni.
+E <- grezzi[grezzi$Season == "Summer", c("Host_species", "N_pianta", "Replicate")]
+E$g <- factor(E$Host_species, levels = c("Quercus_robur", "Quercus_cerris")); E$pl <- factor(E$N_pianta)
+PA_E <- as.matrix(grezzi[grezzi$Season == "Summer", TAXA]); E$R <- rowSums(PA_E)   # ricchezza per piastra
+FREQ_H <- rowsum(PA_E, as.character(E$pl))[as.character(H$N_pianta), ]               # piastre positive per pianta (0-4)
+# permutazione di piante intere (l'etichetta dell'ospite segue la pianta con tutte le sue piastre)
+perm_piante <- function(idx_piante) {   # idx_piante: permutazione delle 20 piante di H
+  nuovo <- setNames(as.character(H$g[idx_piante]), H$N_pianta); factor(nuovo[as.character(E$pl)], levels = levels(E$g)) }
+
 # ---- 5. Aspetto grafico ------------------------------------------------------
 COL <- c(farnia_estate = "#2a78d6", farnia_autunno = "#eb6834", cerro_estate = "#1baf7a")  # verificata per daltonismo
 SHP <- c(farnia_estate = 16, farnia_autunno = 17, cerro_estate = 15)                       # codifica ridondante
