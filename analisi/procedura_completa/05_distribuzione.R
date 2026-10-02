@@ -38,12 +38,13 @@ p1 <- ggplot(pd, aes(gr, R)) +
   geom_rect(data = lim, aes(xmin = x + 0.22, xmax = x + 0.36, ymin = inf, ymax = sup), inherit.aes = FALSE, fill = "grey85") +
   geom_linerange(data = lim, aes(x = x + 0.29, ymin = sinf, ymax = ssup), inherit.aes = FALSE, linewidth = 0.8) +
   geom_point(data = lim, aes(x = x + 0.29, y = m), inherit.aes = FALSE, shape = 23, fill = "white", size = 2.2) +
+  geom_boxplot(width = 0.42, fill = NA, colour = "grey55", outlier.shape = NA, linewidth = 0.35) +
   geom_dotplot(aes(fill = gr), binaxis = "y", stackdir = "center", binwidth = 0.35, dotsize = 0.9, colour = NA) +
   scale_fill_manual(values = COL) +
   scale_x_discrete(labels = c(farnia_estate = "Q. robur\nestate", farnia_autunno = "Q. robur\nautunno", cerro_estate = "Q. cerris\nestate")) +
   scale_y_continuous(limits = c(0, 12), breaks = seq(0, 12, 2)) +
   labs(x = NULL, y = "Ricchezza in taxa per pianta", title = "Ricchezza per pianta",
-       subtitle = "Rombo e barra nera: media ± DS osservata\nFascia grigia: media ± DS attesa con Poisson") + TEMA
+       subtitle = "Boxplot e punti: piante; rombo e barra: media ± DS\nFascia grigia: media ± DS attesa con Poisson") + TEMA
 disp$Gruppo <- factor(disp$Gruppo, levels = ETI[levels(PIANTE$gruppo)])
 p2 <- ggplot(disp, aes(Gruppo, Var_su_media)) +
   geom_hline(yintercept = 1, linetype = "22", colour = "grey40") +

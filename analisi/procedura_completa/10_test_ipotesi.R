@@ -72,6 +72,23 @@ comp <- data.frame(Domanda = c("D2 composizione ~ stagione", "D5 composizione ~ 
   F_PERMDISP = c(pd2$tab[1, "F"], pd5$tab[1, "F"]), p_PERMDISP = c(pd2$tab[1, "Pr(>F)"], pd5$tab[1, "Pr(>F)"]))
 comp[, -1] <- round(comp[, -1], 4); print(comp, row.names = FALSE); salva_tab(comp, "T17_composizione_D2_D5")
 capture.output(a2, pd2, a5, pd5, file = file.path(DIR_LOG, "permanova_permdisp.txt"))
+# Tabelle complete (formato ANOVA). Nel modello stagionale il termine pianta serve solo a rappresentare
+# l'appaiamento: con permutazioni entro pianta non è saggiabile, quindi il suo p-value non è riportato.
+tab_pm <- function(a, dom, fattore) { x <- as.data.frame(a)
+  fonte <- c(pl = "Pianta", g = fattore, Residual = "Residuo", Total = "Totale")[rownames(x)]
+  data.frame(Domanda = dom, Fonte = unname(fonte), gl = x$Df, Somma_quadrati = round(x$SumOfSqs, 4),
+             Media_quadrati = round(x$SumOfSqs / x$Df, 4), Pseudo_F = round(x$F, 3), R2 = round(x$R2, 3),
+             p = round(x$`Pr(>F)`, 4)) }
+pm <- rbind(tab_pm(a2, "D2 stagione (permutazioni entro pianta, 1024)", "Stagione"),
+            tab_pm(a5, "D5 ospite (permutazioni libere, 9999)", "Ospite"))
+pm$p[pm$Fonte == "Pianta"] <- NA; pm$Media_quadrati[pm$Fonte == "Totale"] <- NA
+print(pm, row.names = FALSE); salva_tab(pm, "T21_PERMANOVA")
+tab_pd <- function(pt, b, g, dom) { x <- as.data.frame(pt$tab); m <- tapply(b$distances, g, mean)
+  data.frame(Domanda = dom, Fonte = c("Gruppi", "Residuo"), gl = x$Df, Somma_quadrati = round(x$`Sum Sq`, 4),
+             Media_quadrati = round(x$`Mean Sq`, 4), F = round(x$F, 3), Permutazioni = x$N.Perm, p = round(x$`Pr(>F)`, 4),
+             Distanza_media_dal_centroide = c(paste(names(m), sprintf("%.3f", m), collapse = "; "), NA)) }
+pdd <- rbind(tab_pd(pd2, b2, S$g, "D2 stagione"), tab_pd(pd5, b5, H$g, "D5 ospite"))
+print(pdd, row.names = FALSE); salva_tab(pdd, "T22_PERMDISP")
 
 # ---- D3 e D6: singoli taxa ----
 tarone_bh <- function(p, pmin, alpha = 0.05) {

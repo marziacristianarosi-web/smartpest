@@ -15,6 +15,7 @@ Sf <- S; Sf$x <- as.numeric(Sf$g)                       # 1 = estate, 2 = autunn
 set.seed(1); sp <- setNames(runif(nlevels(Sf$pl), -0.07, 0.07), levels(Sf$pl)); Sf$xj <- Sf$x + sp[as.character(Sf$pl)]
 yl <- c(0, max(PIANTE$R) + 2)
 p1a <- ggplot(Sf, aes(x, R)) +
+  geom_boxplot(aes(group = g), width = 0.32, fill = NA, colour = "grey55", outlier.shape = NA, linewidth = 0.35) +
   geom_line(aes(xj, group = pl), colour = "grey75", linewidth = 0.35) +
   geom_point(aes(xj, colour = gruppo, shape = gruppo), size = 1.8) +
   stat_summary(aes(group = g), fun.data = media_ic, geom = "errorbar", width = 0, linewidth = 0.6, position = position_nudge(x = 0.25)) +
@@ -25,6 +26,7 @@ p1a <- ggplot(Sf, aes(x, R)) +
   scale_y_continuous(limits = yl, breaks = seq(0, 12, 2), expand = c(0, 0)) +
   labs(x = NULL, y = "Ricchezza in taxa per pianta", title = expression(italic("Q. robur")*" – stagione")) + TEMA
 p1b <- ggplot(H, aes(gruppo, R)) +
+  geom_boxplot(width = 0.32, fill = NA, colour = "grey55", outlier.shape = NA, linewidth = 0.35) +
   geom_point(aes(colour = gruppo, shape = gruppo), size = 1.8, position = position_jitter(width = 0.08, height = 0, seed = 1)) +
   stat_summary(fun.data = media_ic, geom = "errorbar", width = 0, linewidth = 0.6, position = position_nudge(x = 0.25)) +
   stat_summary(fun = mean, geom = "point", shape = 23, size = 2.6, fill = "white", position = position_nudge(x = 0.25)) +
@@ -40,7 +42,7 @@ pcoa <- function(dd, M) {
   o <- wcmdscale(vegdist(M, "jaccard", binary = TRUE), eig = TRUE)
   list(sc = cbind(dd, A1 = o$points[, 1], A2 = o$points[, 2]), pv = 100 * o$eig[1:2] / sum(o$eig[o$eig > 0]))
 }
-grafico_pcoa <- function(o, titolo, testo, coppie = FALSE) {
+grafico_pcoa <- function(o, titolo, testo, coppie = FALSE, assi = NULL) {
   sc <- o$sc; cen <- aggregate(cbind(A1, A2) ~ gruppo, sc, mean); p <- ggplot(sc, aes(A1, A2))
   if (coppie) {
     w <- reshape(sc[, c("N_pianta", "gruppo", "A1", "A2")], idvar = "N_pianta", timevar = "gruppo", direction = "wide")
@@ -52,7 +54,8 @@ grafico_pcoa <- function(o, titolo, testo, coppie = FALSE) {
     scale_colour_manual(values = COL, labels = ETI_IT, name = NULL, limits = names(COL), drop = FALSE) +
     scale_shape_manual(values = SHP, labels = ETI_IT, name = NULL, limits = names(COL), drop = FALSE) +
     scale_fill_manual(values = COL, guide = "none", limits = names(COL)) + coord_equal() +
-    labs(x = sprintf("PCoA 1 (%.0f%%)", o$pv[1]), y = sprintf("PCoA 2 (%.0f%%)", o$pv[2]), title = titolo, subtitle = testo) +
+    labs(x = if (is.null(assi)) sprintf("PCoA 1 (%.0f%%)", o$pv[1]) else assi[1],
+         y = if (is.null(assi)) sprintf("PCoA 2 (%.0f%%)", o$pv[2]) else assi[2], title = titolo, subtitle = testo) +
     TEMA + theme(legend.position = "bottom", legend.text = element_text(size = 8))
 }
 txt <- function(i) sprintf("PERMANOVA: R² = %s; %s\nPERMDISP: %s", virgola(comp$R2[i]), fp(comp$p_PERMANOVA[i]), fp(comp$p_PERMDISP[i]))
@@ -60,6 +63,24 @@ p2a <- grafico_pcoa(pcoa(S, PA_S), expression(italic("Q. robur")*" – stagione"
 p2b <- grafico_pcoa(pcoa(H, PA_H), "Estate – specie ospite", txt(2))
 salva_fig((p2a + p2b + plot_layout(guides = "collect") & theme(legend.position = "bottom")) + plot_annotation(tag_levels = "A"),
           "F10_PCoA_composizione", 174, 100)
+
+# ---- F12: NMDS su distanze di Jaccard (vegan::metaMDS), rappresentazione complementare alla PCoA ----
+# L'NMDS conserva solo l'ordine delle dissimilarità; lo stress indica la qualità della rappresentazione
+# (valori bassi = distanze rappresentate fedelmente). È una visualizzazione: il test resta la PERMANOVA.
+nmds <- function(dd, M) {
+  set.seed(2026)
+  o <- metaMDS(vegdist(M, "jaccard", binary = TRUE), k = 2, trymax = 200, trace = FALSE, autotransform = FALSE)
+  list(sc = cbind(dd, A1 = o$points[, 1], A2 = o$points[, 2]), stress = o$stress, conv = o$converged)
+}
+nS <- nmds(S, PA_S); nH <- nmds(H, PA_H)
+st <- data.frame(Confronto = c("Stagione (Q. robur)", "Ospite (estate)"), Stress = round(c(nS$stress, nH$stress), 3),
+                 Convergenza = c(nS$conv, nH$conv) > 0)   # in vegan 2.6 un codice > 0 indica convergenza
+print(st); salva_tab(st, "T23_NMDS_stress")
+txtN <- function(o, i) sprintf("Stress = %s\nPERMANOVA: R² = %s; %s", virgola(o$stress, 3), virgola(comp$R2[i]), fp(comp$p_PERMANOVA[i]))
+p4a <- grafico_pcoa(nS, expression(italic("Q. robur")*" \u2013 stagione"), txtN(nS, 1), coppie = TRUE, assi = c("NMDS 1", "NMDS 2"))
+p4b <- grafico_pcoa(nH, "Estate \u2013 specie ospite", txtN(nH, 2), assi = c("NMDS 1", "NMDS 2"))
+salva_fig((p4a + p4b + plot_layout(guides = "collect") & theme(legend.position = "bottom")) + plot_annotation(tag_levels = "A"),
+          "F12_NMDS_composizione", 174, 100)
 
 # ---- F11: incidenza dei taxa ----
 inc <- aggregate(PA, list(gr = PIANTE$gruppo), sum)
