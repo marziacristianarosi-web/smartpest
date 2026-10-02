@@ -1,5 +1,5 @@
 # Test delle sei ipotesi (Corythucha arcuata - comunità fungina).
-# Uso: Rscript test_ipotesi.R <file_excel> <cartella_output>
+# Uso: Rscript test_ipotesi.R <file_excel> <cartella_output> [domande, es. 1,4,2,5,3,6]
 # I dati e i risultati NON vanno caricati nel repository.
 #
 # Quadro inferenziale unico: tutti i p-value sono di permutazione (o test esatti condizionati,
@@ -10,6 +10,8 @@ suppressMessages({library(readxl); library(glmmTMB); library(vegan)})
 args <- commandArgs(trailingOnly = TRUE)
 f_dati <- if (length(args) >= 1) args[1] else "dati.xlsx"
 out    <- if (length(args) >= 2) args[2] else "risultati_test"
+domande <- if (length(args) >= 3) strsplit(args[3], ",")[[1]] else as.character(1:6)
+ncore  <- max(1, parallel::detectCores() - 0)
 dir.create(out, showWarnings = FALSE, recursive = TRUE)
 set.seed(20261002)
 NPERM_LIBERE <- 9999
@@ -57,46 +59,64 @@ rapporto <- function(fit) {          # rapporto tra medie (exp del coefficiente)
   if (inherits(ci, "try-error")) ci <- confint(fit, parm = 2, method = "wald")
   exp(c(stima = unname(fixef(fit)$cond[2]), inf = ci[1, 1], sup = ci[1, 2]))
 }
-sink(file.path(out, "risultati.txt"), split = TRUE)
 
+# Matrici di dissimilarità di Jaccard (domande 2 e 5)
+dS <- vegdist(paS, method = "jaccard", binary = TRUE)
+dH <- vegdist(paH, method = "jaccard", binary = TRUE)
+
+if ("1" %in% domande) {
+sink(file.path(out, "D1.txt"), split = TRUE)
 # ======================= DOMANDA 1: ricchezza ~ stagione ==========================
 cat("\n=== D1. Ricchezza, stagione (Q. robur, n = 10 coppie) ===\n")
 print(aggregate(R ~ g, S, function(x) c(media = mean(x), ds = sd(x), min = min(x), max = max(x))))
 f1 <- glmmTMB(R ~ g + (1 | pl), data = S, family = genpois())
 print(summary(f1))
 L_obs <- lrt(R ~ g + (1 | pl), R ~ 1 + (1 | pl), S)
-L_perm <- apply(perm_entro, 1, function(idx) { dd <- S; dd$g <- S$g[idx]; lrt(R ~ g + (1 | pl), R ~ 1 + (1 | pl), dd) })
+L_perm <- unlist(parallel::mclapply(seq_len(nrow(perm_entro)), mc.cores = ncore, function(i) { idx <- perm_entro[i, ]; dd <- S; dd$g <- S$g[idx]; lrt(R ~ g + (1 | pl), R ~ 1 + (1 | pl), dd) }))
 ok <- !is.na(L_perm)
 cat(sprintf("LRT osservato = %.3f | permutazioni valide = %d/1024 | p esatto = %.4f\n",
             L_obs, sum(ok), mean(L_perm[ok] >= L_obs - 1e-8)))
 cat("Rapporto tra medie (autunno/estate) e IC 95% (profilo):\n"); print(round(rapporto(f1), 3))
+saveRDS(list(L = L_perm, L_obs = L_obs), file.path(out, "D1_permutazioni.rds"))
+sink()
+}
 
+if ("4" %in% domande) {
+sink(file.path(out, "D4.txt"), split = TRUE)
 # ======================= DOMANDA 4: ricchezza ~ ospite ============================
 cat("\n=== D4. Ricchezza, ospite (estate, 10 + 10 piante) ===\n")
 print(aggregate(R ~ g, H, function(x) c(media = mean(x), ds = sd(x), min = min(x), max = max(x))))
 f4 <- glmmTMB(R ~ g, data = H, family = genpois())
 print(summary(f4))
 L_obs4 <- lrt(R ~ g, R ~ 1, H)
-L_perm4 <- apply(perm_libere, 1, function(idx) { dd <- H; dd$g <- H$g[idx]; lrt(R ~ g, R ~ 1, dd) })
+L_perm4 <- unlist(parallel::mclapply(seq_len(nrow(perm_libere)), mc.cores = ncore, function(i) { idx <- perm_libere[i, ]; dd <- H; dd$g <- H$g[idx]; lrt(R ~ g, R ~ 1, dd) }))
 ok4 <- !is.na(L_perm4)
 cat(sprintf("LRT osservato = %.3f | permutazioni valide = %d/%d | p = %.4f\n", L_obs4, sum(ok4), NPERM_LIBERE,
             (sum(L_perm4[ok4] >= L_obs4 - 1e-8) + 1) / (sum(ok4) + 1)))
 cat("Rapporto tra medie (cerro/farnia) e IC 95% (profilo):\n"); print(round(rapporto(f4), 3))
+saveRDS(list(L = L_perm4, L_obs = L_obs4), file.path(out, "D4_permutazioni.rds"))
+sink()
+}
 
-# ======================= DOMANDE 2 e 5: composizione ==============================
-dS <- vegdist(paS, method = "jaccard", binary = TRUE)
-dH <- vegdist(paH, method = "jaccard", binary = TRUE)
+if ("2" %in% domande) {
+sink(file.path(out, "D2.txt"), split = TRUE)
 cat("\n=== D2. Composizione, stagione: PERMANOVA (Jaccard), permutazioni entro pianta ===\n")
 P2 <- perm_entro[-1, ]                       # esclusa l'identità: vegan aggiunge l'osservato
 print(adonis2(dS ~ pl + g, data = S, permutations = P2, by = "terms"))
 bd2 <- betadisper(dS, S$g)
 cat("PERMDISP (verifica dell'omogeneità della dispersione), permutazioni entro pianta:\n")
 print(tapply(bd2$distances, S$g, mean)); print(permutest(bd2, permutations = P2))
+sink()
+}
 
+if ("5" %in% domande) {
+sink(file.path(out, "D5.txt"), split = TRUE)
 cat("\n=== D5. Composizione, ospite: PERMANOVA (Jaccard), permutazioni libere ===\n")
 print(adonis2(dH ~ g, data = H, permutations = NPERM_LIBERE))
 bd5 <- betadisper(dH, H$g)
 cat("PERMDISP:\n"); print(tapply(bd5$distances, H$g, mean)); print(permutest(bd5, permutations = NPERM_LIBERE))
+sink()
+}
 
 # ======================= DOMANDE 3 e 6: singoli taxa ==============================
 # Esclusione delle ipotesi non verificabili (Tarone 1990) e FDR di Benjamini-Hochberg sulle restanti (Gilbert 2005)
@@ -107,6 +127,9 @@ tarone_bh <- function(p, pmin, alpha = 0.05) {
   q <- rep(NA_real_, m); q[R] <- p.adjust(p[R], "BH")
   list(K = K, testabili = R, q = q)
 }
+
+if ("3" %in% domande) {
+sink(file.path(out, "D3.txt"), split = TRUE)
 cat("\n=== D3. Singoli taxa, stagione: McNemar esatto (binomiale sulle coppie discordanti) ===\n")
 fa <- paS[S$g == "Fall", ]; su <- paS[S$g == "Summer", ]          # righe allineate per pianta
 stopifnot(identical(S$pl[S$g == "Fall"], S$pl[S$g == "Summer"]))
@@ -121,7 +144,12 @@ t3$OR_inf <- ci[, 1] / (1 - ci[, 1]); t3$OR_sup <- ci[, 2] / (1 - ci[, 2])
 tb3 <- tarone_bh(t3$p, t3$p_min); t3$testabile <- tb3$testabili; t3$q_BH <- tb3$q
 cat(sprintf("Ipotesi verificabili (Tarone, K = %d): %d su %d\n", tb3$K, sum(tb3$testabili), length(tx)))
 print(t3, digits = 3, row.names = FALSE)
+write.csv(t3, file.path(out, "D3_taxa_stagione.csv"), row.names = FALSE)
+sink()
+}
 
+if ("6" %in% domande) {
+sink(file.path(out, "D6.txt"), split = TRUE)
 cat("\n=== D6. Singoli taxa, ospite: test esatto di Fisher ===\n")
 ro <- paH[H$g == "Quercus_robur", ]; ce <- paH[H$g == "Quercus_cerris", ]
 n1 <- nrow(ro); n2 <- nrow(ce)
@@ -134,10 +162,12 @@ t6$OR_inf <- sapply(fis, function(x) x$conf.int[1]); t6$OR_sup <- sapply(fis, fu
 t6$p_min <- sapply(t6$prev_farnia + t6$prev_cerro, function(k) {   # tabella più estrema con lo stesso margine
   if (k == 0 || k == n1 + n2) return(1)
   a <- min(k, n2); fisher.test(matrix(c(a, n2 - a, k - a, n1 - (k - a)), 2))$p.value })
+nd6 <- (t6$prev_farnia + t6$prev_cerro) %in% c(0, n1 + n2)   # tabella degenere: OR non stimabile
+t6[nd6, c("OR_cerro_farnia", "OR_inf", "OR_sup")] <- NA
 tb6 <- tarone_bh(t6$p, t6$p_min); t6$testabile <- tb6$testabili; t6$q_BH <- tb6$q
 cat(sprintf("Ipotesi verificabili (Tarone, K = %d): %d su %d\n", tb6$K, sum(tb6$testabili), length(tx)))
 print(t6, digits = 3, row.names = FALSE)
-sink()
-write.csv(t3, file.path(out, "D3_taxa_stagione.csv"), row.names = FALSE)
 write.csv(t6, file.path(out, "D6_taxa_ospite.csv"), row.names = FALSE)
-saveRDS(list(L1 = L_perm, L1_obs = L_obs, L4 = L_perm4, L4_obs = L_obs4), file.path(out, "distribuzioni_permutazione.rds"))
+sink()
+}
+
