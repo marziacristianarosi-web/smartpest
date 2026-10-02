@@ -134,3 +134,8 @@ pN <- nulla(L1, L1_oss, "D1: 1024 permutazioni entro pianta", sprintf("Rosso: va
   nulla(L4, L4_oss, "D4: 9999 permutazioni libere", sprintf("Rosso: valore osservato\n(LRT = %s; p = %s)", virgola(L4_oss, 3), virgola(D4$p, 2))) +
   plot_annotation(tag_levels = "A")
 salva_fig(pN, "F08_distribuzioni_permutazione", 170, 75)
+# pannelli singoli, uno per domanda (usati nella Parte B del report)
+salva_fig(nulla(L1, L1_oss, "D1: 1024 permutazioni entro pianta", sprintf("Rosso: valore osservato (LRT = %s; p = %s)", virgola(L1_oss, 1), virgola(D1$p, 3))),
+          "F08A_permutazioni_D1", 100, 75)
+salva_fig(nulla(L4, L4_oss, "D4: 9999 permutazioni libere", sprintf("Rosso: valore osservato (LRT = %s; p = %s)", virgola(L4_oss, 3), virgola(D4$p, 2))),
+          "F08B_permutazioni_D4", 100, 75)

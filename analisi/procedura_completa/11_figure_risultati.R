@@ -36,6 +36,7 @@ p1b <- ggplot(H, aes(gruppo, R)) +
   scale_y_continuous(limits = yl, breaks = seq(0, 12, 2), expand = c(0, 0)) +
   labs(x = NULL, y = NULL, title = "Estate – specie ospite") + TEMA
 salva_fig(p1a + p1b + plot_annotation(tag_levels = "A"), "F09_ricchezza_risultati", 140, 75)
+salva_fig(p1a, "F09A_ricchezza_stagione", 80, 75); salva_fig(p1b + labs(y = "Ricchezza in taxa per pianta"), "F09B_ricchezza_ospite", 80, 75)
 
 # ---- F10: PCoA su distanze di Jaccard ----
 pcoa <- function(dd, M) {
@@ -63,6 +64,11 @@ p2a <- grafico_pcoa(pcoa(S, PA_S), expression(italic("Q. robur")*" – stagione"
 p2b <- grafico_pcoa(pcoa(H, PA_H), "Estate – specie ospite", txt(2))
 salva_fig((p2a + p2b + plot_layout(guides = "collect") & theme(legend.position = "bottom")) + plot_annotation(tag_levels = "A"),
           "F10_PCoA_composizione", 174, 100)
+# nei pannelli singoli la legenda mostra solo i gruppi presenti
+solo <- function(p, liv) suppressMessages(p + scale_colour_manual(values = COL, labels = ETI_IT[liv], limits = liv, name = NULL) +
+  scale_shape_manual(values = SHP, labels = ETI_IT[liv], limits = liv, name = NULL))
+LS <- c("farnia_estate", "farnia_autunno"); LH <- c("farnia_estate", "cerro_estate")
+salva_fig(solo(p2a, LS), "F10A_PCoA_stagione", 100, 105); salva_fig(solo(p2b, LH), "F10B_PCoA_ospite", 100, 105)
 
 # ---- F12: NMDS su distanze di Jaccard (vegan::metaMDS), rappresentazione complementare alla PCoA ----
 # L'NMDS conserva solo l'ordine delle dissimilarità; lo stress indica la qualità della rappresentazione
@@ -81,6 +87,7 @@ p4a <- grafico_pcoa(nS, expression(italic("Q. robur")*" \u2013 stagione"), txtN(
 p4b <- grafico_pcoa(nH, "Estate \u2013 specie ospite", txtN(nH, 2), assi = c("NMDS 1", "NMDS 2"))
 salva_fig((p4a + p4b + plot_layout(guides = "collect") & theme(legend.position = "bottom")) + plot_annotation(tag_levels = "A"),
           "F12_NMDS_composizione", 174, 100)
+salva_fig(solo(p4a, LS), "F12A_NMDS_stagione", 100, 105); salva_fig(solo(p4b, LH), "F12B_NMDS_ospite", 100, 105)
 
 # ---- F11: incidenza dei taxa ----
 inc <- aggregate(PA, list(gr = PIANTE$gruppo), sum)
