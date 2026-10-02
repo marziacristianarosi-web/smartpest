@@ -35,11 +35,17 @@ yy <- 0:14
 attP <- sapply(yy, function(y) sum(dpois(y, fitted(fP))))
 attG <- sapply(yy, function(y) sum(dgp(y, fitted(fG), sigma(fG))))
 oss <- as.numeric(table(factor(H$R, levels = yy)))
-fr <- rbind(data.frame(y = yy, n = attP, mod = "Poisson"), data.frame(y = yy, n = attG, mod = "Poisson generalizzata"))
-pF <- ggplot() + geom_col(data = data.frame(y = yy, n = oss), aes(y, n), fill = "grey80", width = 0.8) +
-  geom_line(data = fr, aes(y, n, linetype = mod), linewidth = 0.6) + geom_point(data = fr, aes(y, n, shape = mod), size = 1.6) +
-  scale_shape_manual(values = c(1, 16)) + scale_x_continuous(breaks = yy) +
-  labs(x = "Ricchezza in taxa per pianta", y = "Numero di piante", linetype = NULL, shape = NULL,
-       title = "Frequenze osservate (barre) e attese dai modelli",
-       subtitle = "Estate, 20 piante (domanda 4)") + TEMA + theme(legend.position = c(0.2, 0.85))
+# distribuzioni discrete: barre affiancate per ciascun valore intero (nessuna linea di raccordo)
+fr <- rbind(data.frame(y = yy, n = oss, serie = "Osservate"),
+            data.frame(y = yy, n = attP, serie = "Attese: Poisson"),
+            data.frame(y = yy, n = attG, serie = "Attese: Poisson generalizzata"))
+fr$serie <- factor(fr$serie, levels = c("Osservate", "Attese: Poisson", "Attese: Poisson generalizzata"))
+pF <- ggplot(fr, aes(y, n, fill = serie)) +
+  geom_col(position = position_dodge(0.85), width = 0.8, colour = "grey20", linewidth = 0.25) +
+  scale_fill_manual(values = c("grey80", "white", "grey25"), name = NULL) +
+  scale_x_continuous(breaks = yy, expand = c(0.01, 0)) + scale_y_continuous(expand = c(0, 0), limits = c(0, 7.5)) +
+  labs(x = "Ricchezza in taxa per pianta (valori interi)", y = "Numero di piante",
+       title = "Frequenze osservate e attese dai due modelli",
+       subtitle = "Estate, 20 piante (domanda 4)\nFrequenze attese = somma delle probabilità previste per ciascuna pianta") +
+  TEMA + theme(legend.position = c(0.2, 0.82))
 salva_fig(pF, "F04_scelta_distribuzione", 120, 80)

@@ -11,6 +11,7 @@
 if (!exists("PIANTE")) source("00_impostazioni.R")
 set.seed(20261002)
 NPERM <- 9999
+RICALCOLA <- as.logical(Sys.getenv("CORY_RICALCOLA", "TRUE"))   # FALSE = riusa le permutazioni salvate
 P_LIBERE <- t(replicate(NPERM, sample(nrow(H))))
 rapporto <- function(fit) {   # rapporto tra le medie con IC 95% dal profilo di verosimiglianza
   ci <- try(confint(fit, parm = 2, method = "profile"), silent = TRUE)
@@ -22,6 +23,7 @@ rapporto <- function(fit) {   # rapporto tra le medie con IC 95% dal profilo di 
 f1 <- glmmTMB(R ~ g + (1 | pl), data = S, family = genpois())
 L1_oss <- lrt_gp(R ~ g + (1 | pl), R ~ 1 + (1 | pl), S)
 fileL1 <- file.path(DIR_TAB, "D1_distribuzione_permutazione.rds")
+# distribuzione già calcolata nel passaggio 8 (se presente viene riusata)
 L1 <- if (file.exists(fileL1)) readRDS(fileL1) else unlist(in_parallelo(seq_len(nrow(PERM_ENTRO)), function(i, S, P) {
   dd <- S; dd$g <- S$g[P[i, ]]; lrt_gp(R ~ g + (1 | pl), R ~ 1 + (1 | pl), dd) }, S = S, P = PERM_ENTRO))
 r1 <- rapporto(f1)
@@ -32,9 +34,10 @@ D1 <- data.frame(Domanda = "D1 ricchezza ~ stagione", Media_gruppo1 = mean(S$R[S
 # ---- D4: ricchezza ~ ospite (GLM, permutazione libera) ----
 f4 <- glmmTMB(R ~ g, data = H, family = genpois())
 L4_oss <- lrt_gp(R ~ g, R ~ 1, H)
-L4 <- unlist(in_parallelo(seq_len(NPERM), function(i, H, P) { dd <- H; dd$g <- H$g[P[i, ]]; lrt_gp(R ~ g, R ~ 1, dd) },
+fileL4 <- file.path(DIR_TAB, "D4_distribuzione_permutazione.rds")
+L4 <- if (!RICALCOLA && file.exists(fileL4)) readRDS(fileL4) else unlist(in_parallelo(seq_len(NPERM), function(i, H, P) { dd <- H; dd$g <- H$g[P[i, ]]; lrt_gp(R ~ g, R ~ 1, dd) },
                           H = H, P = P_LIBERE))
-saveRDS(L4, file.path(DIR_TAB, "D4_distribuzione_permutazione.rds"))
+saveRDS(L4, fileL4)
 r4 <- rapporto(f4)
 D4 <- data.frame(Domanda = "D4 ricchezza ~ ospite", Media_gruppo1 = mean(H$R[H$g == "Quercus_robur"]), Media_gruppo2 = mean(H$R[H$g == "Quercus_cerris"]),
                  Rapporto_medie = r4[1], IC95_inf = r4[2], IC95_sup = r4[3], LRT = L4_oss, Permutazioni = sum(!is.na(L4)),
@@ -42,6 +45,18 @@ D4 <- data.frame(Domanda = "D4 ricchezza ~ ospite", Media_gruppo1 = mean(H$R[H$g
 ric <- rbind(D1, D4); ric[, -1] <- round(ric[, -1], 4)
 print(ric, row.names = FALSE); salva_tab(ric, "T16_ricchezza_D1_D4")
 capture.output(summary(f1), summary(f4), file = file.path(DIR_LOG, "modelli_ricchezza.txt"))
+
+# ---- Verifica di robustezza (dichiarata, non un secondo test): differenza tra le medie come statistica ----
+# Stesse permutazioni dell'LRT; la validità del test di permutazione non dipende dalla statistica (Good 2005).
+dm <- function(y, g, a, b) mean(y[g == a]) - mean(y[g == b])
+D1p <- apply(PERM_ENTRO, 1, function(idx) dm(S$R, S$g[idx], "Summer", "Fall")); D1o <- dm(S$R, S$g, "Summer", "Fall")
+D4p <- apply(P_LIBERE, 1, function(idx) dm(H$R, H$g[idx], "Quercus_cerris", "Quercus_robur")); D4o <- dm(H$R, H$g, "Quercus_cerris", "Quercus_robur")
+rob <- data.frame(Domanda = c("D1", "D4"), Differenza_medie = c(D1o, D4o),
+  p_differenza_medie = c(mean(abs(D1p) >= abs(D1o) - 1e-9), (sum(abs(D4p) >= abs(D4o) - 1e-9) + 1) / (NPERM + 1)),
+  p_LRT = c(D1$p, D4$p),
+  Correlazione_rango_LRT_vs_diff = c(cor(L1, abs(D1p), method = "spearman", use = "complete.obs"),
+                                     cor(L4, abs(D4p), method = "spearman", use = "complete.obs")))
+rob[, -1] <- round(rob[, -1], 4); print(rob, row.names = FALSE); salva_tab(rob, "T20_robustezza_statistica")
 
 # ---- D2 e D5: composizione (PERMANOVA + PERMDISP) ----
 dS <- vegdist(PA_S, method = "jaccard", binary = TRUE); dH <- vegdist(PA_H, method = "jaccard", binary = TRUE)
@@ -98,7 +113,7 @@ nulla <- function(L, oss, tit, sotto) {
   ggplot(data.frame(L = L[!is.na(L)]), aes(L)) + geom_histogram(bins = 40, fill = "grey75", colour = "white") +
     geom_vline(xintercept = oss, colour = "#c0392b", linewidth = 0.8) +
     labs(x = "Statistica LRT", y = "Permutazioni", title = tit, subtitle = sotto) + TEMA }
-pN <- nulla(L1, L1_oss, "Domanda 1: 1024 permutazioni entro pianta", sprintf("Rosso: valore osservato (LRT = %s; p = %s)", virgola(L1_oss, 1), virgola(D1$p, 3))) +
-  nulla(L4, L4_oss, "Domanda 4: 9999 permutazioni libere", sprintf("Rosso: valore osservato (LRT = %s; p = %s)", virgola(L4_oss, 3), virgola(D4$p, 2))) +
+pN <- nulla(L1, L1_oss, "D1: 1024 permutazioni entro pianta", sprintf("Rosso: valore osservato\n(LRT = %s; p = %s)", virgola(L1_oss, 1), virgola(D1$p, 3))) +
+  nulla(L4, L4_oss, "D4: 9999 permutazioni libere", sprintf("Rosso: valore osservato\n(LRT = %s; p = %s)", virgola(L4_oss, 3), virgola(D4$p, 2))) +
   plot_annotation(tag_levels = "A")
 salva_fig(pN, "F08_distribuzioni_permutazione", 170, 75)
