@@ -60,6 +60,10 @@ if (RICALCOLA || !file.exists(file_cal)) {
   }))
   print(cal, row.names = FALSE); salva_tab(cal, "T13_confronto_metodi_test")
 } else cal <- as.data.frame(read_excel(file_cal))
+# Livello nominale: con B = 39 repliche il p bootstrap vale (k + 1)/40; il criterio p < 0,05 è soddisfatto solo con k = 0,
+# quindi il tasso atteso sotto H0 è 1/40 = 2,5%. Per gli altri metodi è il 5%.
+cal$Livello_nominale_perc <- ifelse(grepl("bootstrap", cal$Metodo), 100 / (B + 1), 5)
+salva_tab(cal, "T13_confronto_metodi_test")
 
 # distribuzione di permutazione esatta entro pianta dell'LRT della domanda 1 (usata anche dal test, passaggio 10)
 fileL1 <- file.path(DIR_TAB, "D1_distribuzione_permutazione.rds")
@@ -84,9 +88,10 @@ cl$Modello <- factor(sub(" \\(.*", "", cl$Modello), levels = unique(sub(" \\(.*"
 p2 <- ggplot(cl, aes(Metodo, Falsi_positivi_perc)) +
   geom_col(aes(fill = Metodo == "LRT permutazione"), width = 0.65, show.legend = FALSE) +
   geom_errorbar(aes(ymin = Falsi_positivi_perc - 1.96 * ES_MonteCarlo, ymax = Falsi_positivi_perc + 1.96 * ES_MonteCarlo), width = 0.2, na.rm = TRUE) +
-  geom_hline(yintercept = 5, linetype = "22") + facet_wrap(~ Modello, ncol = 1) +
+  geom_errorbar(aes(ymin = Livello_nominale_perc, ymax = Livello_nominale_perc), width = 0.8, linetype = "22", colour = "#c0392b") +
+  facet_wrap(~ Modello, ncol = 1) +
   scale_fill_manual(values = c(`FALSE` = "grey60", `TRUE` = "grey85")) +
   labs(x = NULL, y = "Falsi positivi (%)", title = "Falsi positivi per metodo di test",
-       subtitle = "Dati simulati senza effetto; barre = IC 95% Monte Carlo\nTratteggio: 5% nominale; permutazione = esatta per costruzione") +
+       subtitle = "Dati simulati senza effetto; barre = IC 95% Monte Carlo\nTratteggio rosso: livello nominale (5%; 2,5% per il bootstrap con B = 39)\npermutazione = esatta per costruzione") +
   TEMA + theme(strip.background = element_blank(), axis.text.x = element_text(angle = 25, hjust = 1))
 salva_fig(p1 + p2 + plot_layout(widths = c(1, 1.3)) + plot_annotation(tag_levels = "A"), "F06_errore_primo_tipo", 190, 150)
